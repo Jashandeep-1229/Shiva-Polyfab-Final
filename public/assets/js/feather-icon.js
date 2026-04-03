@@ -1,0 +1,1 @@
+try { feather.replace(); } catch (e) { console.warn('Feather icon error:', e.message); }
