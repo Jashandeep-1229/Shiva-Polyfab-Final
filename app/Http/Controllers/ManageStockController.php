@@ -49,6 +49,22 @@ class ManageStockController extends Controller
 
         return view('admin.manage_stock.index', compact('stock_name', 'stock_name_capital', 'in_out', 'unit_name', 'average', 'stock_list'));
     }
+    public function bulk_modal(Request $request)
+    {
+        if (!\App\Helpers\PermissionHelper::check('stock_management', 'add')) {
+            return '<div class="alert alert-danger m-3">Access Denied! You do not have permission to record new stock.</div>';
+        }
+        $stock_name = $request->stock_name ?? 'fabric';
+        $in_out = $request->in_out ?? 'in';
+        $unit_name = $request->unit_name;
+        $average = $request->average;
+        
+        $stock_name_capital = ucfirst($stock_name);
+        $modelClass = "App\\Models\\" . $stock_name_capital;
+        $stock_list = $modelClass::where('status', 1)->get();
+        return view('admin.manage_stock.bulk_modal', compact('stock_name','in_out','unit_name','average','stock_list','stock_name_capital'));
+    }
+
     public function get_current_stock(Request $request, $id)
     {
         $manage_stock = ManageStock::where('stock_name', $request->stock_name)->where('stock_id', $id)->get();
@@ -213,6 +229,52 @@ class ManageStockController extends Controller
 
         $history = $query->oldest('date')->oldest('id')->paginate($number);
         return view('admin.manage_stock.history_datatable', compact('history'));
+    }
+
+    public function bulk_store(Request $request)
+    {
+        if (!\App\Helpers\PermissionHelper::check('stock_management', 'add')) {
+            return response()->json(['result' => -1, 'message' => 'Access Denied! You do not have permission to record new stock.']);
+        }
+
+        $input = $request->all();
+        $date = $input['date'] ?? date('Y-m-d');
+        $stock_name = $input['stock_name'];
+        $unit_name = $input['unit_name'];
+        $in_out = $input['in_out'];
+        $average_factor = $input['average_factor'];
+        $user_id = auth()->user()->id;
+
+        $items = $request->items ?? [];
+        $count = 0;
+
+        foreach ($items as $item) {
+            if (isset($item['stock_id']) && $item['stock_id'] > 0 && isset($item['quantity']) && $item['quantity'] > 0) {
+                ManageStock::create([
+                    'date' => $date,
+                    'stock_name' => $stock_name,
+                    'unit_name' => $unit_name,
+                    'in_out' => $in_out,
+                    'stock_id' => $item['stock_id'],
+                    'quantity' => $item['quantity'],
+                    'average' => ($item['quantity'] * $average_factor),
+                    'remarks' => $item['remarks'] ?? null,
+                    'user_id' => $user_id,
+                    'from' => 'Manually',
+                    'status' => 1
+                ]);
+                $count++;
+            }
+        }
+
+        if ($count > 0) {
+            return response()->json([
+                'result' => 1,
+                'message' => $count . ' stock records saved successfully.'
+            ]);
+        }
+
+        return response()->json(['result' => 0, 'message' => 'No valid stock entries found.']);
     }
 
     /**

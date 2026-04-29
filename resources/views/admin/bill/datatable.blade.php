@@ -36,14 +36,17 @@
             <td>₹ {{ number_format($bill->total_amount, 2) }}</td>
             <td>₹ {{ number_format($bill->igst_amount, 2) }}</td>
             <td class="fw-bold">₹ {{ number_format($bill->grand_total, 2) }}</td>
-            <td>
-                @if(empty($bill->job_card_id))
-                    <a href="{{ route('bill.edit', $bill->id) }}" class="btn btn-warning btn-sm" title="Edit Bill"><i class="fa fa-edit"></i></a>
-                @endif
-                <a href="{{ route('bill.pdf', $bill->id) }}" target="_blank" class="btn btn-primary btn-sm" title="Print Bill"><i class="fa fa-print"></i></a>
-                @if(auth()->user()->role_as == 'Admin')
-                <button type="button" class="btn btn-danger btn-sm" onclick="deleteCard({{ $bill->id }})" title="Delete"><i class="fa fa-trash"></i></button>
-                @endif
+            <td class="text-nowrap">
+                <div class="d-flex gap-1">
+                    @if(empty($bill->job_card_id))
+                        <a href="{{ route('bill.edit', $bill->id) }}" class="btn btn-warning btn-xs px-2" title="Edit Bill"><i class="fa fa-edit text-white"></i></a>
+                    @endif
+                    <a href="{{ route('bill.pdf', $bill->id) }}" target="_blank" class="btn btn-primary btn-xs px-2" title="Print Bill"><i class="fa fa-print"></i></a>
+
+                    @if(auth()->user()->role_as == 'Admin')
+                        <button type="button" class="btn btn-danger btn-xs px-2" onclick="deleteCard({{ $bill->id }})" title="Delete"><i class="fa fa-trash"></i></button>
+                    @endif
+                </div>
             </td>
         </tr>
         @endforeach

@@ -9,42 +9,57 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-4 bg-light">
-                <div class="row g-4">
-                    <div class="col-md-7">
-                        <div class="h6 fw-bold text-uppercase text-muted border-bottom pb-2 mb-3">Activity Log</div>
-                        <div class="history-list px-2 overflow-auto" style="max-height: 480px;">
-                             @foreach($followup->histories->sortBy('id') as $h)
-                                 <div class="history-item">
-                                     <div class="d-flex align-items-center mb-1">
-                                         <span class="history-dot {{ $h->status == 1 ? 'bg-primary' : 'bg-success' }}"></span>
-                                         <div class="d-flex flex-column small">
-                                             <span class="fw-bold text-dark">Scheduled: {{ date('j M, Y H:i', strtotime($h->followup_date_time)) }}</span>
-                                             @if($h->complete_date_time)
-                                                 <span class="text-success extra-small fw-bold">
-                                                     Completed: {{ date('j M, Y H:i', strtotime($h->complete_date_time)) }} 
-                                                     <span class="ms-1 px-2 py-0 bg-success text-white rounded-pill" style="font-size: 8px;">{{ $h->total_no_of_days }} DAYS DELAY</span>
-                                                 </span>
-                                             @else
-                                                 <span class="text-primary extra-small fw-bold">ACTIVE TASK</span>
-                                             @endif
-                                         </div>
-                                         <span class="ms-auto badge bg-light text-dark border extra-small fw-bold">{{ $h->user->name ?? 'System' }}</span>
-                                     </div>
-                                     <div class="history-line">
-                                         <div class="p-3 rounded bg-white border shadow-sm small">
-                                             @if($h->remarks)
-                                                <div class="text-dark fw-bold" style="font-size: 13px;">{!! nl2br(e($h->remarks)) !!}</div>
-                                             @else
-                                                <div class="text-muted italic small">No remarks for this step.</div>
-                                             @endif
-                                         </div>
-                                     </div>
-                                 </div>
-                             @endforeach
+                @if($followup->status == 'Closed')
+                    <div class="text-center py-4 bg-white rounded-4 border shadow-sm">
+                        <h5 class="fw-bold text-dark mb-1 text-uppercase">{{ $followup->subject }} ({{ $followup->completedBy->name ?? ($followup->user->name ?? 'N/A') }})</h5>
+                        <div class="fw-bold text-success mb-2">STATUS: Closed</div>
+                        <div class="text-muted small fw-bold">
+                            {!! nl2br(e($followup->histories->sortByDesc('id')->first()->remarks ?? 'No final remarks recorded.')) !!}
                         </div>
                     </div>
-                    <div class="col-md-5">
-                        @if($followup->status == 'Pending')
+                @else
+                    <div class="row g-4">
+                        <div class="col-md-7">
+                            <div class="h6 fw-bold text-uppercase text-muted border-bottom pb-2 mb-3">Activity Log</div>
+                            <div class="history-list px-2 overflow-auto" style="max-height: 480px;">
+                                 @foreach($followup->histories->sortBy('id') as $h)
+                                     <div class="history-item">
+                                         <div class="d-flex align-items-center mb-1">
+                                             <span class="history-dot {{ $h->status == 1 ? 'bg-primary' : 'bg-success' }}"></span>
+                                             <div class="d-flex flex-column small">
+                                                 <span class="fw-bold text-dark">Scheduled: {{ date('j M, Y H:i', strtotime($h->followup_date_time)) }}</span>
+                                                 @if($h->complete_date_time)
+                                                     <span class="text-success extra-small fw-bold">
+                                                         Completed: {{ date('j M, Y H:i', strtotime($h->complete_date_time)) }} 
+                                                         <span class="ms-1 px-2 py-0 bg-success text-white rounded-pill" style="font-size: 8px;">{{ $h->total_no_of_days }} DAYS DELAY</span>
+                                                     </span>
+                                                 @else
+                                                     <span class="text-primary extra-small fw-bold">ACTIVE TASK</span>
+                                                 @endif
+                                             </div>
+                                             <span class="ms-auto badge bg-light text-dark border extra-small fw-bold">{{ $h->user->name ?? 'System' }}</span>
+                                         </div>
+                                         <div class="history-line">
+                                             <div class="p-3 rounded bg-white border shadow-sm small">
+                                                 @if($h->remarks)
+                                                    <div class="text-dark fw-bold" style="font-size: 13px;">{!! nl2br(e($h->remarks)) !!}</div>
+                                                 @else
+                                                    <div class="text-muted italic small">No remarks for this step.</div>
+                                                 @endif
+                                             </div>
+                                         </div>
+                                     </div>
+                                 @endforeach
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            @php 
+                                $has_transaction = \DB::table('customer_ledgers')
+                                    ->where('customer_id', $followup->customer_id)
+                                    ->where('transaction_date', '>', $followup->created_at)
+                                    ->where('dr_cr', 'Cr')
+                                    ->exists();
+                            @endphp
                             <div class="card border-0 shadow-sm rounded-4">
                                 <div class="card-body p-4">
                                     <h6 class="fw-bold text-warning mb-3"><i class="fa fa-pencil-square-o me-1"></i> Add Interaction / Update</h6>
@@ -61,14 +76,14 @@
                                                 <input type="radio" class="btn-check" name="status" id="update_continue" value="Continue" checked onchange="$('#next_date_div').slideDown()">
                                                 <label class="btn btn-outline-warning fw-bold py-2" for="update_continue">CONTINUE</label>
 
-                                                @if($has_debit)
+                                                @if($has_transaction)
                                                     <input type="radio" class="btn-check" name="status" id="update_closed" value="Closed" onchange="$('#next_date_div').slideUp()">
                                                     <label class="btn btn-outline-success fw-bold py-2" for="update_closed">CLOSED</label>
                                                 @endif
                                             </div>
-                                            @if(!$has_debit)
+                                            @if(!$has_transaction)
                                                 <div class="mt-2 text-danger extra-small fw-bold">
-                                                    <i class="fa fa-info-circle me-1"></i> CLOSED option hidden until a new transaction is recorded.
+                                                    <i class="fa fa-info-circle me-1"></i> CLOSED option hidden until a new Credit entry (Payment) is recorded.
                                                 </div>
                                             @endif
                                         </div>
@@ -94,26 +109,36 @@
                                     </form>
                                 </div>
                             </div>
-                        @else
-                            <div class="alert alert-success border-0 shadow-sm rounded-4 text-center p-5">
-                                <i class="fa fa-check-circle-o fa-3x mb-3"></i>
-                                <h5 class="fw-bold mb-1">Followup Closed!</h5>
-                                <p class="text-muted small">This case has been successfully recovered and settled.</p>
-                                <div class="mt-3 p-3 bg-white rounded border small text-dark">
-                                    <strong>Total Duration:</strong> {{ $followup->total_no_of_days }} Days<br>
-                                    <strong>Completed On:</strong> {{ date('j M, Y', strtotime($followup->complete_date)) }}<br>
-                                    <strong>By:</strong> {{ $followup->completedBy->name ?? 'N/A' }}
-                                </div>
-                            </div>
-                        @endif
+                        </div>
                     </div>
-                </div>
+                @endif
+            </div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+    function calculateFollowupDate(days, targetId, displayId) {
+        if(!days || days < 0) days = 0;
+        let date = new Date();
+        date.setDate(date.getDate() + parseInt(days));
+        
+        let year = date.getFullYear();
+        let month = String(date.getMonth() + 1).padStart(2, '0');
+        let day = String(date.getDate()).padStart(2, '0');
+        let formatted = `${year}-${month}-${day}T12:00`;
+        
+        $(`#${targetId}`).val(formatted);
+        
+        const options = { day: '2-digit', month: 'short', year: 'numeric' };
+        $(`#${displayId}`).text(date.toLocaleDateString('en-GB', options) + ' 12:00 PM');
+    }
+
+    $(document).ready(function() {
+        calculateFollowupDate(1, 'update_fup_date', 'update_fup_display');
+    });
+
     $('#update_thread_form').submit(function(e){
         e.preventDefault();
         var $btn = $(this).find('button[type="submit"]');
@@ -127,12 +152,19 @@
                 if(res.result == 1){
                     $.notify({title:'Success', message:res.message}, {type:'success'});
                     $('#historyModal').modal('hide');
-                    get_datatable();
+                    if (typeof get_datatable === 'function') {
+                        get_datatable();
+                    } else {
+                        location.reload();
+                    }
+                } else {
+                    $.notify({title:'Error', message:res.message}, {type:'danger'});
                 }
                 $btn.prop('disabled', false).html('SAVE & UPDATE');
             },
-            error: function(){
-                $.notify({title:'Error', message:'Something went wrong'}, {type:'danger'});
+            error: function(xhr){
+                let msg = xhr.responseJSON ? xhr.responseJSON.message : 'Something went wrong';
+                $.notify({title:'Error', message:msg}, {type:'danger'});
                 $btn.prop('disabled', false).html('SAVE & UPDATE');
             }
         });

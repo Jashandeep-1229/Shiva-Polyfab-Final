@@ -200,6 +200,8 @@
 .ai-bubble p { margin: 0 0 8px; }
 .ai-bubble p:last-child { margin-bottom: 0; }
 .ai-bubble h1,.ai-bubble h2,.ai-bubble h3 { color: #10b981; font-size: 15px; margin: 8px 0 4px; }
+.ai-link { color: #10b981; font-weight: 600; text-decoration: none; border-bottom: 1px dashed rgba(16,185,129,0.5); transition: all .2s; }
+.ai-link:hover { color: #059669; background: rgba(16,185,129,0.1); border-bottom-style: solid; border-bottom-color: #10b981; text-decoration: none; }
 
 @media (max-width: 900px) {
     .ai-main-grid { grid-template-columns: 1fr; }
@@ -356,11 +358,72 @@ $(document).ready(function () {
     // ── Render markdown-ish text ──────────────────
     function renderText(text) {
         return text
+            .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" class="ai-link" target="_blank">$1</a>')
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g,     '<em>$1</em>')
             .replace(/`(.*?)`/g,       '<code>$1</code>')
-            .replace(/\n/g,            '<br>');
+            .replace(/\n\/g,           '<br>');
     }
+
+    // ── Intercept Link Clicks ──────────────────────
+    // Aggressively catch ALL links within the bubble, not just .ai-link
+    $(document).on('click', '.ai-bubble a', function(e) {
+        const url = $(this).attr('href');
+        if (!url || url === '#' || url.startsWith('javascript:')) return;
+        
+        // If it's a PDF link or external, let it open normally
+        if (url.includes('/pdf') || url.includes('http') && !url.includes(window.location.hostname)) {
+            return true;
+        }
+
+        e.preventDefault();
+        
+        // Ensure modal exists
+        if ($('#ai-modal').length === 0) {
+            $('body').append(`
+                <div class="modal fade" id="ai-modal" tabindex="-1" aria-hidden="true" style="z-index: 9999;">
+                    <div class="modal-dialog modal-xl modal-dialog-centered">
+                        <div class="modal-content" id="ai-modal-content" style="background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+                            <div class="modal-body text-center py-5">
+                                <div class="loader-box"><div class="loader-37"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
+        
+        $('#ai-modal').modal('show');
+        $('#ai-modal-content').html('<div class="modal-body text-center py-5"><div class="loader-box"><div class="loader-37"></div></div></div>');
+        
+        $.get(url, function(data) {
+            if (typeof data === 'string' && data.includes('</body>')) {
+                $('#ai-modal-content').html(`
+                    <div class="modal-header">
+                        <h4 class="modal-title">System View</h4>
+                        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-0" style="height: 80vh;">
+                        <iframe src="${url}" style="width:100%; height:100%; border:none;"></iframe>
+                    </div>
+                `);
+            } else {
+                $('#ai-modal-content').html(data);
+                $('.js-example-basic-single').select2({ dropdownParent: $('#ai-modal') });
+            }
+        }).fail(function() {
+             $('#ai-modal-content').html(`
+                <div class="modal-header">
+                    <h5 class="modal-title">Error</h5>
+                    <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-5 text-center text-danger">
+                    <i class="fa fa-exclamation-triangle fa-3x mb-3"></i>
+                    <p>Failed to load the requested content.</p>
+                </div>
+             `);
+        });
+    });
 
     // ── Add a message bubble ──────────────────────
     function addMsg(role, text) {

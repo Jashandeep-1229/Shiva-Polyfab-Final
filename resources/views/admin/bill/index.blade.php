@@ -1,4 +1,5 @@
 @extends('layouts.admin.app')
+@section('title', 'Bill Management')
 @section('breadcrumb-items')
     <li class="breadcrumb-item">Bill Management</li>
 @endsection
@@ -101,18 +102,18 @@
     });
 
     function deleteCard(id) {
-        Swal.fire({
-            title: 'Are you sure?',
+        swal({
+            title: "Are you sure?",
             text: "This will permanently delete the Bill and its items!",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
-        }).then((result) => {
-            if (result.isConfirmed) {
+            icon: "warning",
+            buttons: true,
+            dangerMode: true,
+        }).then((willDelete) => {
+            if (willDelete) {
+                var url = "{{ route('bill.delete', ':id') }}";
+                url = url.replace(':id', id);
                 $.ajax({
-                    url: "{{ url('bills/delete') }}/" + id,
+                    url: url,
                     type: "GET",
                     success: function(response) {
                         if(response.result == 1) {

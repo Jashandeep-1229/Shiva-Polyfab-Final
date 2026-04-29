@@ -336,8 +336,11 @@
 
     $(document).on('click', '.pagination a', function(e) {
         e.preventDefault();
-        var page = $(this).attr('href').split('page=')[1];
-        get_report(page);
+        var url = new URL($(this).attr('href'));
+        var page = url.searchParams.get('page');
+        if (page) {
+            get_report(page);
+        }
     });
 
     function viewTimeline(id) {

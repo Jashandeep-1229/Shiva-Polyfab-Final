@@ -440,58 +440,69 @@ class AdminDashboardController extends Controller
             'lamination' => $request->limit_lamination ?? 4,
             'cutting' => $request->limit_cutting ?? 2,
         ];
-        $from_date = Carbon::parse($request->from_date);
-        $to_date = Carbon::parse($request->to_date);
+        $from_date = $request->from_date ? Carbon::parse($request->from_date)->startOfDay() : null;
+        $to_date = $request->to_date ? Carbon::parse($request->to_date)->endOfDay() : null;
         $type = $request->type; // 'Cylinder', 'Printing', etc.
 
-        $process_map = [
-            'Cylinder' => 'Cylinder Come',
-            'Printing' => 'Schedule For Printing',
-            'Lamination' => 'Schedule For Lamination',
-            'Cutting' => 'Schedule For Box / Cutting'
+        $active_process_map = [
+            'Cylinder' => ['Cylinder Come'],
+            'Printing' => ['Schedule For Printing'],
+            'Lamination' => ['Schedule For Lamination'],
+            'Cutting' => ['Schedule For Box / Cutting']
         ];
 
-        $target_process = $process_map[$type] ?? null;
+        $target_processes = $active_process_map[$type] ?? [];
 
-        $processes = JobCardProcess::whereBetween('created_at', [$from_date->startOfDay(), $to_date->endOfDay()])
-            ->when($target_process, function($q) use ($target_process) {
-                return $q->where('process_name', $target_process);
-            })
-            ->whereIn('process_name', array_values($process_map))
-            ->with(['job_card.customer_agent', 'job_card.hold_reason', 'job_card.heldByUser'])
-            ->get();
+        $query = JobCard::whereNull('complete_date')
+            ->whereNull('cancel_date')
+            ->with(['customer_agent', 'hold_reason', 'heldByUser', 'processes' => function($q) {
+                $q->where('status', 1);
+            }]);
+
+        /*
+        if ($from_date && $to_date) {
+            $query->whereBetween('job_card_date', [$from_date, $to_date]);
+        }
+        */
+
+        $active_jobs = $query->get();
 
         $late_list = [];
-        foreach ($processes as $p) {
+        foreach ($active_jobs as $jc) {
+            $p = $jc->processes->first();
+            if (!$p) continue;
+
             $limit = 0;
             $ptype = '';
-            if ($p->process_name == 'Cylinder Come') { $limit = $limits['cylinder']; $ptype = 'Cylinder'; }
-            elseif ($p->process_name == 'Schedule For Printing') { $limit = $limits['printing']; $ptype = 'Printing'; }
-            elseif ($p->process_name == 'Schedule For Lamination') { $limit = $limits['lamination']; $ptype = 'Lamination'; }
-            elseif ($p->process_name == 'Schedule For Box / Cutting') { $limit = $limits['cutting']; $ptype = 'Cutting'; }
+            $pname = $p->process_name;
 
+            if ($pname == 'Cylinder Come') { $limit = $limits['cylinder']; $ptype = 'Cylinder'; }
+            elseif ($pname == 'Schedule For Printing') { $limit = $limits['printing']; $ptype = 'Printing'; }
+            elseif ($pname == 'Schedule For Lamination') { $limit = $limits['lamination']; $ptype = 'Lamination'; }
+            elseif ($pname == 'Schedule For Box / Cutting') { $limit = $limits['cutting']; $ptype = 'Cutting'; }
+
+            // If a specific type was requested, filter by it
             if ($type && $ptype != $type) continue;
+            if (!$ptype) continue;
 
             $start = Carbon::parse($p->process_start_date);
-            $end = $p->process_end_date ? Carbon::parse($p->process_end_date) : Carbon::now();
-            $diff = $start->diffInDays($end);
+            $diff = $start->diffInDays(Carbon::now());
 
             if ($diff > $limit) {
-                $jc = $p->job_card;
                 $late_list[] = [
                     'job_card_no'       => $jc->job_card_no ?? 'N/A',
                     'job_card_name'     => $jc->name_of_job ?? 'N/A',
                     'customer'          => $jc->customer_agent->name ?? 'N/A',
                     'process'           => $ptype,
+                    'current_stage'     => $pname,
                     'days_taken'        => $diff,
                     'limit'             => $limit,
                     'delay'             => $diff - $limit,
-                    // Hold fields
-                    'is_hold'           => $jc ? (int)$jc->is_hold : 0,
-                    'hold_reason'       => $jc && $jc->hold_reason ? $jc->hold_reason->name : null,
+                    'is_hold'           => (int)$jc->is_hold,
+                    'hold_reason'       => $jc->hold_reason ? $jc->hold_reason->name : null,
                     'hold_notes'        => $jc->hold_notes ?? null,
-                    'held_by'           => $jc && $jc->heldByUser ? $jc->heldByUser->name : null,
-                    'held_at'           => $jc && $jc->held_at ? $jc->held_at->format('d M Y, h:i A') : null,
+                    'held_by'           => $jc->heldByUser ? $jc->heldByUser->name : null,
+                    'held_at'           => $jc->held_at ? $jc->held_at->format('d M Y, h:i A') : null,
                 ];
             }
         }
@@ -546,15 +557,13 @@ class AdminDashboardController extends Controller
 
     private function getLateJobs($limits, $from_date, $to_date)
     {
-        // Calculate delays based on processes
-        $processes = JobCardProcess::whereBetween('created_at', [$from_date, $to_date])
-            ->whereIn('process_name', [
-                'Cylinder Come', 
-                'Schedule For Printing', 
-                'Schedule For Lamination', 
-                'Schedule For Box / Cutting'
-            ])
-            ->with('job_card')
+        // Fetch ACTIVE jobs within the date range that are not completed/cancelled
+        // Fetch ACTIVE jobs (Global - no date filter as requested)
+        $active_jobs = JobCard::whereNull('complete_date')
+            ->whereNull('cancel_date')
+            ->with(['processes' => function($q) {
+                $q->where('status', 1); // Get the current active process record
+            }])
             ->get();
 
         $stats = [
@@ -565,26 +574,52 @@ class AdminDashboardController extends Controller
                 'Lamination' => 0,
                 'Cutting' => 0,
             ],
+            'total_by_process' => [
+                'Cylinder' => 0,
+                'Printing' => 0,
+                'Lamination' => 0,
+                'Cutting' => 0,
+            ],
+            'total_delay_days' => 0,
             'avg_delay_days' => 0
         ];
 
         $total_delay = 0;
         $count = 0;
 
-        foreach ($processes as $p) {
+        foreach ($active_jobs as $job) {
+            $p = $job->processes->first();
+            if (!$p) continue;
+
             $limit = 0;
             $key = '';
-            if ($p->process_name == 'Cylinder Come') { $limit = $limits['cylinder']; $key = 'Cylinder'; }
-            elseif ($p->process_name == 'Schedule For Printing') { $limit = $limits['printing']; $key = 'Printing'; }
-            elseif ($p->process_name == 'Schedule For Lamination') { $limit = $limits['lamination']; $key = 'Lamination'; }
-            elseif ($p->process_name == 'Schedule For Box / Cutting') { $limit = $limits['cutting']; $key = 'Cutting'; }
+            $pname = $p->process_name;
+
+            // Mapping active processes to dashboard categories
+            if ($pname == 'Cylinder Come') {
+                $limit = $limits['cylinder'];
+                $key = 'Cylinder';
+            } elseif ($pname == 'Schedule For Printing') {
+                $limit = $limits['printing'];
+                $key = 'Printing';
+            } elseif ($pname == 'Schedule For Lamination') {
+                $limit = $limits['lamination'];
+                $key = 'Lamination';
+            } elseif ($pname == 'Schedule For Box / Cutting') {
+                $limit = $limits['cutting'];
+                $key = 'Cutting';
+            }
+
+            if (!$key) continue;
+
+            $stats['total_by_process'][$key]++;
 
             $start = Carbon::parse($p->process_start_date);
-            $end = $p->process_end_date ? Carbon::parse($p->process_end_date) : Carbon::now();
-            $diff = $start->diffInDays($end);
+            $diff = $start->diffInDays(Carbon::now());
 
             if ($diff > $limit) {
                 $stats['total_late']++;
+                $stats['total_delay_days'] += $diff;
                 $stats['by_process'][$key]++;
                 $total_delay += ($diff - $limit);
                 $count++;

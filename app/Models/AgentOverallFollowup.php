@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\AutoLogsActivity;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class AgentOverallFollowup extends Model
 {
-    use HasFactory;
+    use HasFactory, AutoLogsActivity;
 
     protected $fillable = [
         'agent_id', 'followup_date', 'complete_date', 'remarks', 

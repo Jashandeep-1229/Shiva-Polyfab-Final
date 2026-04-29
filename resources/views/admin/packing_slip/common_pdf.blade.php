@@ -71,8 +71,8 @@
             @foreach($packing_slip->packing_details as $key => $detail)
             <tr>
                 <td>{{ $key + 1 }}</td>
-                <td>{{ $detail->job_card->size->name ?? 'Common Size' }}</td>
-                <td>{{ $detail->job_card->color->name ?? 'Common Color' }}</td>
+                <td>{{ $detail->size->name ?? ($detail->job_card->size->name ?? 'Common Size') }}</td>
+                <td>{{ $detail->color->name ?? ($detail->job_card->color->name ?? 'Common Color') }}</td>
                 <td style="font-weight: 800;">{{ number_format($detail->weight, 3) }}</td>
             </tr>
             @endforeach

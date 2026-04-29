@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Models\LedgerFollowupHistory;
 use App\Models\CustomerLedgerLog;
 use App\Models\User;
+use App\Jobs\SendCreditWhatsAppJob;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 use Exception;
@@ -383,6 +384,11 @@ class CustomerLedgerController extends Controller
                 'user_id' => Auth::id()
             ]
         );
+        
+        // WhatsApp Notification for Credit (Payment Received) - DELAYED 1 HOUR, ONLY ON NEW
+        if (!$request->id && $ledgerEntry->dr_cr == 'Cr') {
+            SendCreditWhatsAppJob::dispatch($ledgerEntry->id)->delay(now()->addHour());
+        }
 
         if($request->id && $oldData) {
             CustomerLedgerLog::create([
@@ -406,35 +412,76 @@ class CustomerLedgerController extends Controller
             'type' => 'required|in:Dr,Cr',
         ]);
 
-        DB::transaction(function() use ($request) {
-            foreach($request->dates as $key => $date) {
-                if(!isset($request->customer_ids[$key])) continue;
-                
-                $is_bad_debt = $request->is_bad_debt[$key] ?? 0;
-                $amount = $request->amounts[$key] ?? 0;
-                $remarks = $request->remarks[$key] ?? null;
+        $logEntries = [];
+        $totalVoucherAmount = 0;
 
-                if($is_bad_debt && $amount > 0) {
-                    $remarks = ($remarks ? $remarks . ' ' : '') . '[AMOUNT: ' . $amount . ']';
-                    $amount = 0; // Per user request: "remove amount just only text"
+        DB::transaction(function() use ($request, &$logEntries, &$totalVoucherAmount) {
+            CustomerLedger::withoutEvents(function() use ($request, &$logEntries, &$totalVoucherAmount) {
+                foreach($request->dates as $key => $date) {
+                    if(!isset($request->customer_ids[$key])) continue;
+                    
+                    $is_bad_debt = $request->is_bad_debt[$key] ?? 0;
+                    $amount = $request->amounts[$key] ?? 0;
+                    $remarks = $request->remarks[$key] ?? null;
+
+                    if($is_bad_debt && $amount > 0) {
+                        $remarks = ($remarks ? $remarks . ' ' : '') . '[AMOUNT: ' . $amount . ']';
+                        $amount = 0;
+                    }
+
+                    $ledger = CustomerLedger::create([
+                        'customer_id' => $request->customer_ids[$key],
+                        'transaction_date' => $date,
+                        'grand_total_amount' => $amount,
+                        'dr_cr' => $is_bad_debt ? 'Cr' : $request->type,
+                        'is_bad_debt' => $is_bad_debt,
+                        'payment_method_id' => $request->payment_method_ids[$key] ?? null,
+                        'remarks' => $remarks,
+                        'user_id' => Auth::id()
+                    ]);
+
+                    $totalVoucherAmount += $amount;
+                    $customer = AgentCustomer::find($request->customer_ids[$key]);
+                    
+                    $logEntries[] = [
+                        'customer' => $customer->name ?? 'N/A',
+                        'date' => $date,
+                        'amount' => $amount,
+                        'type' => $ledger->dr_cr,
+                        'remarks' => $remarks
+                    ];
+
+                    if ($ledger->dr_cr == 'Cr') {
+                       SendCreditWhatsAppJob::dispatch($ledger->id)->delay(now()->addHour());
+                    }
+
+                    if($is_bad_debt) {
+                        AgentCustomer::where('id', $request->customer_ids[$key])->update(['is_bad_debt' => 1]);
+                    }
                 }
-
-                CustomerLedger::create([
-                    'customer_id' => $request->customer_ids[$key],
-                    'transaction_date' => $date,
-                    'grand_total_amount' => $amount,
-                    'dr_cr' => $is_bad_debt ? 'Cr' : $request->type,
-                    'is_bad_debt' => $is_bad_debt,
-                    'payment_method_id' => $request->payment_method_ids[$key] ?? null,
-                    'remarks' => $remarks,
-                    'user_id' => Auth::id()
-                ]);
-
-                if($is_bad_debt) {
-                    AgentCustomer::where('id', $request->customer_ids[$key])->update(['is_bad_debt' => 1]);
-                }
-            }
+            });
         });
+
+        // SINGLE ATOMIC LOG FOR VOUCHER
+        if(!empty($logEntries)) {
+            $activity = activity('Voucher')
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'attributes' => [
+                        'type' => $request->type,
+                        'count' => count($logEntries),
+                        'total_amount' => $totalVoucherAmount
+                    ],
+                    'context' => [
+                        'entries' => $logEntries,
+                        'mode' => 'multi_voucher'
+                    ]
+                ])
+                ->log("created");
+                
+            $activity->event = 'created';
+            $activity->save();
+        }
 
         return response()->json(['result' => 1, 'message' => 'Multiple Entries Saved Successfully']);
     }
@@ -641,6 +688,13 @@ class CustomerLedgerController extends Controller
                 ->get()
                 ->keyBy('customer_id');
 
+            // NEW: Fetch max bill due dates
+            $max_bill_due_dates = \App\Models\Bill::whereIn('customer_id', $customer_ids)
+                ->select('customer_id', DB::raw('MAX(due_date) as max_due'))
+                ->groupBy('customer_id')
+                ->get()
+                ->keyBy('customer_id');
+
             // Pre-fetch all debits for FIFO calculation
             $all_debits = CustomerLedger::whereIn('customer_id', $customer_ids)
                 ->where('dr_cr', 'Dr')
@@ -720,6 +774,33 @@ class CustomerLedgerController extends Controller
                     }
                 }
 
+                $last_cr_row = $last_credits->get($customer->id);
+                $last_cr_date = $last_cr_row ? Carbon::parse($last_cr_row->last_date) : null;
+                $bill_due_row = $max_bill_due_dates->get($customer->id);
+                $max_bill_due = $bill_due_row ? Carbon::parse($bill_due_row->max_due) : null;
+
+                $activity_date = null;
+                if ($last_cr_date && $max_bill_due) {
+                    $activity_date = $last_cr_date->gt($max_bill_due) ? $last_cr_date : $max_bill_due;
+                } else {
+                    $activity_date = $last_cr_date ?: $max_bill_due;
+                }
+
+                $is_inactive_30 = false;
+                if ($activity_date) {
+                    // Check if > 31 days inactive (means 30 days gap)
+                    if ($now->diffInDays($activity_date, false) > 30) {
+                        $is_inactive_30 = true;
+                    }
+                } else {
+                    // No ever record or only Debits?
+                    // According to requirements "if no credit transaction means its inactive"
+                    // If they have balance (Only Dr), then it's certainly inactive if no Cr ever found.
+                    if ($net_balance > 0.01) {
+                         $is_inactive_30 = true;
+                    }
+                }
+
                 $report_data[] = [
                     'customer' => $customer,
                     'net_balance' => $net_balance,
@@ -728,7 +809,8 @@ class CustomerLedgerController extends Controller
                     'has_followup' => $has_followup,
                     'active_followup_id' => $active_fup ? $active_fup->id : null,
                     'can_close' => $can_close,
-                    'highlight_7_days' => $highlight_7_days
+                    'highlight_7_days' => $highlight_7_days,
+                    'is_inactive_30' => $is_inactive_30
                 ];
             }
 
@@ -744,6 +826,7 @@ class CustomerLedgerController extends Controller
 
             if ($request->filter_by && $request->filter_by != 'top_amount') {
                 $report_data = array_filter($report_data, function($d) use ($request) {
+                    if ($request->filter_by == '30_days_inactive') return $d['is_inactive_30'] === true;
                     if ($request->filter_by == 'bad_debt') return $d['customer']->is_bad_debt == 1;
                     if ($request->filter_by == 'top_amount') return true;
                     if ($request->filter_by == '0-15') return $d['buckets']['1-15'] > 1;
@@ -866,5 +949,57 @@ class CustomerLedgerController extends Controller
         $pdf->setPaper('A4', 'portrait');
         
         return $pdf->stream('Ledger_'.str_replace(' ', '_', $customer->name).'.pdf');
+    }
+
+    public function sharePdf($id)
+    {
+        $customer = AgentCustomer::findOrFail($id);
+        
+        // WhatsApp/Meta Fetch - No date filters for full summary
+        $from_date = null;
+        $to_date = null;
+        $opening_balance = 0;
+
+        $ledger = CustomerLedger::with(['job_card', 'packing_slip', 'payment_method', 'bill', 'job_card.bill'])
+            ->where('customer_id', $id)
+            ->orderBy('transaction_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $pan_no = null;
+        if ($customer->gst && strlen($customer->gst) >= 12) {
+            $pan_no = substr($customer->gst, 2, 10);
+        }
+
+        $pdf = PDF::loadView('admin.customer_ledger.individual_ledger_pdf', compact('customer', 'ledger', 'opening_balance', 'from_date', 'to_date', 'pan_no'));
+        $pdf->setPaper('A4', 'portrait');
+        return $pdf->stream('Ledger_'.str_replace(' ', '_', $customer->name).'.pdf');
+    }
+
+    public function sendWhatsAppSummary(Request $request, $id)
+    {
+        $customer = AgentCustomer::findOrFail($id);
+        
+        if (empty($customer->phone_no)) {
+            return response()->json(['result' => -1, 'message' => 'Customer phone number missing!']);
+        }
+
+        // Calculate current total balance
+        $balance = CustomerLedger::where('customer_id', $id)
+            ->select(DB::raw("SUM(CASE WHEN dr_cr = 'Dr' THEN grand_total_amount ELSE -grand_total_amount END) as balance"))
+            ->first()->balance ?? 0;
+
+        $to = preg_replace('/[^0-9]/', '', $customer->phone_no);
+        if (strlen($to) === 10) $to = '91' . $to;
+
+        $service = new \App\Services\WhatsAppService();
+        $success = $service->sendLedgerSummary($to, $customer, $balance);
+
+        if ($success) {
+            \Illuminate\Support\Facades\Cache::put('ledger_whatsapp_sent_' . $id, now(), now()->addHours(24));
+            return response()->json(['result' => 1, 'message' => 'Ledger Summary sent to WhatsApp successfully.']);
+        } else {
+            return response()->json(['result' => -1, 'message' => 'Failed to send WhatsApp message. Check logs.']);
+        }
     }
 }

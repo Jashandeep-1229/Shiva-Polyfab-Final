@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\AutoLogsActivity;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LeadFollowup extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
 
     protected $fillable = [
         'lead_id', 'type', 'status_at_time_id', 'followup_date', 'complete_date', 'delay_days', 

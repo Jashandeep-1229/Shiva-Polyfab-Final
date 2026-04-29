@@ -214,6 +214,7 @@ class CommonManageStockController extends Controller
         if (auth()->user()->role_as != 'Admin') {
             return response()->json(['result' => -1, 'message' => 'Access Denied! Only Admin can delete stock records.']);
         }
+        $stock = CommonManageStock::find($id);
         if ($stock) {
             // If deleting an 'In' entry, check if balance becomes negative
             if ($stock->in_out == 'In') {
@@ -349,7 +350,7 @@ class CommonManageStockController extends Controller
             });
 
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.common_stock.pdf_remaining_list', compact('grouped_stocks'))
-                ->setPaper('a4', 'landscape');
+                ->setPaper('a4', 'portrait');
             return $pdf->stream('Common_Remaining_Stock_List.pdf');
         } else {
             // 'In' or 'Out'

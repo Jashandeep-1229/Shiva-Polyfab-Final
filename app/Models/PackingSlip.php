@@ -6,9 +6,24 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Traits\AutoLogsActivity;
+
 class PackingSlip extends Model
 {
-    use HasFactory,SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
+    
+    public $log_context = [];
+
+    public function tapActivity(\Spatie\Activitylog\Models\Activity $activity, string $eventName)
+    {
+        $activity->description = "Packing Slip Ref: {$this->packing_slip_no}";
+        if(!empty($this->log_context)) {
+            $properties = $activity->properties->toArray();
+            $properties['context'] = $this->log_context;
+            $activity->properties = collect($properties);
+        }
+    }
+
     protected $fillable = [
         'user_id',
         'packing_slip_no',

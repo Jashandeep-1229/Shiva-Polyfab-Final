@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\AutoLogsActivity;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class AgentLeadFollowup extends Model
 {
-    use HasFactory;
+    use HasFactory, AutoLogsActivity;
 
     protected $fillable = [
         'agent_lead_id', 'status_at_time_id', 'type', 'followup_date', 

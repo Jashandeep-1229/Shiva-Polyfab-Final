@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Traits\AutoLogsActivity;
+
 class AgentCustomer extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
 
     protected $table = 'agent_customers';
 
@@ -28,6 +30,8 @@ class AgentCustomer extends Model
         'remarks',
         'status',
         'is_bad_debt',
+        'last_message_at',
+        'unseen_count',
     ];
 
     public function sale_executive()
@@ -38,5 +42,10 @@ class AgentCustomer extends Model
     public function ledgerEntries()
     {
         return $this->hasMany(CustomerLedger::class, 'customer_id');
+    }
+
+    public function chatMessages()
+    {
+        return $this->hasMany(ChatMessage::class, 'customer_id');
     }
 }

@@ -78,11 +78,29 @@ class PackingSlipController extends Controller
             $detail->save();
 
             $this->recalculate_slip($detail->packing_slip_id);
+            
+            $slip = PackingSlip::find($detail->packing_slip_id);
+            
+            // Log this specific bag dispatch
+            activity('PackingSlip')
+                ->performedOn($slip)
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'context' => [
+                        'ps_no' => $slip->packing_slip_no,
+                        'bag_weight' => $detail->weight,
+                        'total_bags_dispatched' => $slip->dispatch_bags,
+                        'total_weight_dispatched' => $slip->dispatch_weight,
+                        'event_type' => 'bag_dispatched',
+                        'bag_id' => $detail->id
+                    ]
+                ])
+                ->log("Packing slip- {$slip->packing_slip_no} (dispatched - {$slip->dispatch_bags} bags)");
 
             return response()->json([
                 'result' => 1,
                 'message' => 'Bag Completed',
-                'slip' => PackingSlip::find($detail->packing_slip_id),
+                'slip' => $slip,
                 'formatted_complete_date' => date('d M, Y', strtotime($detail->complete_date))
             ]);
         }
@@ -102,11 +120,28 @@ class PackingSlipController extends Controller
             $detail->save();
 
             $this->recalculate_slip($detail->packing_slip_id);
+            $slip = PackingSlip::find($detail->packing_slip_id);
+
+            // Log this specific bag undo
+            activity('PackingSlip')
+                ->performedOn($slip)
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'context' => [
+                        'ps_no' => $slip->packing_slip_no,
+                        'bag_weight' => $detail->weight,
+                        'total_bags_dispatched' => $slip->dispatch_bags,
+                        'total_weight_dispatched' => $slip->dispatch_weight,
+                        'event_type' => 'bag_undo',
+                        'bag_id' => $detail->id
+                    ]
+                ])
+                ->log("Packing slip- {$slip->packing_slip_no} (REVERTED - {$slip->dispatch_bags} bags)");
 
             return response()->json([
                 'result' => 1,
                 'message' => 'Bag Undo Successful',
-                'slip' => PackingSlip::find($detail->packing_slip_id)
+                'slip' => $slip
             ]);
         }
         return response()->json(['result' => 0, 'message' => 'Cannot undo this bag anymore']);
@@ -133,7 +168,9 @@ class PackingSlipController extends Controller
                 $slip->complete_date = null;
             }
             
-            $slip->save();
+            PackingSlip::withoutEvents(function () use ($slip) {
+                $slip->save();
+            });
 
             // JOB CARD COMPLETION LOGIC
             $job_card = JobCard::find($slip->job_card_id);

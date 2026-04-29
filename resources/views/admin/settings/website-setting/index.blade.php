@@ -84,6 +84,23 @@
                     </div>
                     <hr>
                     <div class="row">
+                        <div class="col-12 mb-3">
+                            <h5>WhatsApp Testing Settings</h5>
+                        </div>
+                        <div class="col-md-6 form-group mb-3">
+                            <h6>Testing Mode:</h6>
+                            <select name="whatsapp_test_mode" class="form-control" required>
+                                <option value="true" {{ env('WHATSAPP_TEST_MODE') == true ? 'selected' : '' }}>Enabled (Send to Test Number)</option>
+                                <option value="false" {{ env('WHATSAPP_TEST_MODE') == false ? 'selected' : '' }}>Disabled (Send to Real Customers)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 form-group mb-3">
+                            <h6>Test Phone Number</h6>
+                            <input type="text" class="form-control" name="whatsapp_test_number" value="{{ env('WHATSAPP_TEST_NUMBER') }}" placeholder="91...">
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
                         <div class="col-12 text-center">
                             <button type="submit" class="btn btn-primary">Save</button>
                         </div>

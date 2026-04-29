@@ -53,7 +53,22 @@
                     @endif
                 </td>
                 <td class="text-end">
+                    @php
+                        $lastSent = \Illuminate\Support\Facades\Cache::get('ledger_whatsapp_sent_' . $row->id);
+                        $isRecentlySent = $lastSent ? true : false;
+                    @endphp
                     <div class="d-flex gap-1 justify-content-end">
+                        <button type="button" 
+                            class="btn {{ $isRecentlySent ? 'btn-success' : 'btn-outline-success' }} btn-sm px-2 shadow-sm position-relative" 
+                            onclick="sendWhatsAppSummaryFromList({{ $row->id }}, '{{ str_replace("'", "\'", $row->name) }}')"
+                            title="{{ $isRecentlySent ? 'WhatsApp Sent ' . \Carbon\Carbon::parse($lastSent)->diffForHumans() : 'Send Ledger to WhatsApp' }}">
+                            <i class="fa fa-whatsapp {{ $isRecentlySent ? 'text-white' : 'text-success' }}"></i>
+                            @if($isRecentlySent)
+                                <span class="position-absolute translate-middle badge rounded-pill bg-success border border-white" style="top: -5px; right: -15px; font-size: 8px; padding: 3px 5px;">
+                                    <i class="fa fa-check text-white"></i>
+                                </span>
+                            @endif
+                        </button>
                         <a href="{{ route('customer_ledger.view', $row->id) }}?from_date={{ $from_date }}&to_date={{ $to_date }}" class="btn btn-primary btn-sm px-3 shadow-sm" title="View Detail Ledger">
                             <i class="fa fa-eye me-1"></i> VIEW DETAIL
                         </a>
@@ -75,6 +90,37 @@
         </tfoot>
     </table>
 </div>
+
+<script>
+    function sendWhatsAppSummaryFromList(id, name) {
+        swal({
+            title: "Are you sure?",
+            text: "Send the current ledger summary and PDF to " + name + " via WhatsApp?",
+            icon: "info",
+            buttons: true,
+            dangerMode: false,
+        })
+        .then((confirm) => {
+            if (confirm) {
+                $.notify({ title:'Processing', message:'Generating PDF and sending WhatsApp...' }, { type:'info' });
+                $.ajax({
+                    url: '{{ url("admin/customer_ledgers/whatsapp_summary") }}/' + id,
+                    type: 'GET',
+                    success: function(data) {
+                        if(data.result == 1) {
+                            $.notify({ title:'Success', message:data.message }, { type:'success' });
+                            // Reload simple to refresh icons without full page reload if needed, 
+                            // but usually a full notification is enough.
+                            setTimeout(() => { location.reload(); }, 1500);
+                        } else {
+                            $.notify({ title:'Error', message:data.message }, { type:'danger' });
+                        }
+                    }
+                });
+            }
+        });
+    }
+</script>
 
 <div class="mt-3 pages">
     {{ $customers->links() }}

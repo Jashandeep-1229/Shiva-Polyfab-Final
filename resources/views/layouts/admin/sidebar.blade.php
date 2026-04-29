@@ -3,16 +3,16 @@
 @endphp
 <div class="sidebar-wrapper" sidebar-layout="stroke-svg">
   <div>
-    <div class="logo-wrapper" style="height: auto; width:200px;"><a href="{{ url('/') }}"><img class="img-fluid for-light" src="{{ asset(env('APP_LOGO_DARK')) }}" alt=""><img class="img-fluid for-dark" src="{{ asset(env('APP_LOGO_LIGHT')) }}" alt=""></a>
+    <div class="logo-wrapper" style="height: auto; width:200px;"><a href="{{ auth()->user()->role_as == 'Admin' ? route('admin.dashboard.overall') : url('/') }}"><img class="img-fluid for-light" src="{{ asset(env('APP_LOGO_DARK')) }}" alt=""><img class="img-fluid for-dark" src="{{ asset(env('APP_LOGO_LIGHT')) }}" alt=""></a>
       <div class="back-btn"><i class="fa fa-angle-left"></i></div>
       <div class="toggle-sidebar"><i class="status_toggle middle sidebar-toggle" data-feather="grid"> </i></div>
     </div>
-    <div class="logo-icon-wrapper"><a href="{{ url('/') }}"><img class="img-fluid" width="50px" src="{{ asset(env('APP_FAVICON')) }}" alt=""></a></div>
+    <div class="logo-icon-wrapper"><a href="{{ auth()->user()->role_as == 'Admin' ? route('admin.dashboard.overall') : url('/') }}"><img class="img-fluid" width="50px" src="{{ asset(env('APP_FAVICON')) }}" alt=""></a></div>
     <nav class="sidebar-main">
       <div class="left-arrow" id="left-arrow"><i data-feather="arrow-left"></i></div>
       <div id="sidebar-menu">
         <ul class="sidebar-links" id="simple-bar">
-          <li class="back-btn"><a href="{{ url('/') }}"><img class="img-fluid" src="{{ asset(env('APP_FAVICON')) }}" alt=""></a>
+          <li class="back-btn"><a href="{{ auth()->user()->role_as == 'Admin' ? route('admin.dashboard.overall') : url('/') }}"><img class="img-fluid" src="{{ asset(env('APP_FAVICON')) }}" alt=""></a>
             <div class="mobile-back text-end"><span>Back</span><i class="fa fa-angle-right ps-2" aria-hidden="true"></i></div>
           </li>
           <li class="sidebar-main-title cat-general">
@@ -22,8 +22,16 @@
           </li>
           @if(PermissionHelper::check('dashboard'))
           <li class="sidebar-list cat-general">
-            <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}">
+            <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('dashboard') || request()->routeIs('admin.dashboard.overall') ? 'active' : '' }}" href="{{ auth()->user()->role_as == 'Admin' ? route('admin.dashboard.overall') : route('dashboard') }}">
               <i data-feather="home"></i><span>Dashboard</span>
+            </a>
+          </li>
+          @endif
+
+          @if(auth()->user()->role_as == 'Admin')
+          <li class="sidebar-list cat-general">
+            <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('chat.index') ? 'active' : '' }}" href="{{ route('chat.index') }}">
+              <i data-feather="message-circle" style="stroke: #25D366;"></i><span>WhatsApp Chat</span>
             </a>
           </li>
           @endif
@@ -35,11 +43,11 @@
           </li>
           @endif
           
-          <li class="sidebar-list cat-general">
+          <!-- <li class="sidebar-list cat-general">
             <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('ai_studio.*') ? 'active' : '' }}" href="{{ route('ai_studio.index') }}">
               <i data-feather="cpu" style="stroke: #6366F1;"></i><span>AI Intelligence Studio</span>
             </a>
-          </li>
+          </li> -->
           @if(PermissionHelper::check('old_data'))
           <li class="sidebar-list cat-general">
             <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('old_data.index') ? 'active' : '' }}" href="{{ route('old_data.index') }}">
@@ -204,6 +212,8 @@
              </a>
            </li> 
            @endif
+
+       
 
            @if(PermissionHelper::check('ledger_followups'))
            <li class="sidebar-list cat-accounts">
@@ -534,6 +544,7 @@
               <li><a href="{{ route('dana.index') }}">Dana</a></li>
                <li><a href="{{ route('loop.index') }}">Loop Color</a></li>
                <li><a href="{{ route('size_color.index') }}">Size & Color</a></li>
+               <li><a href="{{ route('fabric_size.index') }}">Fabric Size Calculation</a></li>
                <li><a href="{{ route('payment_method.index') }}">Payment Method</a></li>
             
             </ul>
@@ -590,6 +601,18 @@
             </ul>
           </li>
           @endif
+          @if(PermissionHelper::check('manage_master'))
+          <li class="sidebar-list cat-master">
+            <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('gsm_calculator.index') ? 'active' : '' }}" href="{{ route('gsm_calculator.index') }}">
+              <i data-feather="plus-square" style="stroke: #3b82f6;"></i><span>GSM Calculator</span>
+            </a>
+          </li>
+          <li class="sidebar-list cat-master">
+            <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('executive_target.index') ? 'active' : '' }}" href="{{ route('executive_target.index') }}">
+              <i data-feather="trending-up" style="stroke: #10b981;"></i><span>Executive Target</span>
+            </a>
+          </li>
+          @endif
           @endif
          
         
@@ -613,6 +636,18 @@
           </li>
           @endif
           @endif
+              @if(auth()->user()->role_as == 'Admin')
+           <li class="sidebar-list cat-accounts">
+             <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('employee_log.index') ? 'active' : '' }}" href="{{ route('employee_log.index') }}">
+               <i data-feather="activity"></i><span>Employee Log</span>
+             </a>
+           </li> 
+           <li class="sidebar-list cat-accounts">
+             <a class="sidebar-link sidebar-title link-nav {{ request()->routeIs('employee_log.performance') ? 'active' : '' }}" href="{{ route('employee_log.performance') }}">
+               <i data-feather="award"></i><span>Employee Performance</span>
+             </a>
+           </li> 
+           @endif
 
   @if(PermissionHelper::check('website_setting'))        
           <li class="sidebar-main-title cat-team">

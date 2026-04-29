@@ -62,26 +62,30 @@
                     </form>
                 </div>
                 @endif
-                <div class="card">
-                    <div class="card-body">
-                        <div  id="basic-2_wrapper" class="dataTables_wrapper px-2">
-                            <div class="dataTables_length">
-                                <label>Show 
-                                    <select name="basic-2_value" onchange="get_datatable()" id="basic-2_value" aria-controls="basic-2" class="form-control form-control-sm">
-                                        <option value="50">50</option>
-                                        <option value="250" selected>250</option>
-                                        <option value="500">500</option>
-                                        <option value="1000">1000</option>
-                                    </select>
-                                </label>
-                            </div>
-                            <div class="dataTables_filter">
-                                <label>Search:
-                                    <input type="search" onkeyup="get_datatable()" id="basic-2_search" class="form-control form-control-sm" placeholder="Search" aria-controls="basic-2" data-bs-original-title="" title="">
-                                </label>
-                                
-                            </div>
+                        <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+                            <h5>Stock Ledger</h5>
+                            <button type="button" class="btn btn-primary btn-sm px-3 shadow-sm" onclick="bulk_modal()">
+                                <i class="fa fa-list-ol me-1"></i> Add Multiple Entries
+                            </button>
                         </div>
+                        <div class="card-body">
+                            <div id="basic-2_wrapper" class="dataTables_wrapper px-2">
+                                <div class="dataTables_length">
+                                    <label>Show 
+                                        <select name="basic-2_value" onchange="get_datatable()" id="basic-2_value" aria-controls="basic-2" class="form-control form-control-sm text-dark bg-white">
+                                            <option value="50">50</option>
+                                            <option value="250" selected>250</option>
+                                            <option value="500">500</option>
+                                            <option value="1000">1000</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <div class="dataTables_filter">
+                                    <label class="mb-0">Search:
+                                        <input type="search" onkeyup="get_datatable()" id="basic-2_search" class="form-control form-control-sm text-dark bg-white" placeholder="Type here to search..." style="border: 1px solid #4d8aff !important;">
+                                    </label>
+                                </div>
+                            </div>
                         <div class="dt-ext" id="get_datatable">
                             <div class="loader-box"><div class="loader-37"></div></div>
                             
@@ -142,12 +146,24 @@
        
 
         function edit_modal(id,key_value){
+            $('#ajax_html').removeClass('modal-lg');
             var url = "{{route('manage_stock.edit_modal',":id")}}";
             url = url.replace(':id',id);
             $('#ajax_html').html('<div class="loader-box"><div class="loader-37"></div></div>');
+            $('#edit_modal').modal('show');
             $.get(url,{key_value:key_value,stock_name:"{{$stock_name}}",in_out:"{{$in_out}}",unit_name:"{{$unit_name}}",average:"{{$average}}"}, function(data){
                 $('#ajax_html').html(data);
-                $('.js-example-basic-single').select2();
+                $('.js-example-basic-single').select2({ dropdownParent: $('#edit_modal') });
+            });
+        }
+
+        function bulk_modal(){
+            $('#ajax_html').addClass('modal-lg');
+            var url = "{{route('manage_stock.bulk_modal')}}";
+            $('#ajax_html').html('<div class="loader-box"><div class="loader-37"></div></div>');
+            $('#edit_modal').modal('show');
+            $.get(url,{stock_name:"{{$stock_name}}",in_out:"{{$in_out}}",unit_name:"{{$unit_name}}",average:"{{$average}}"}, function(data){
+                $('#ajax_html').html(data);
             });
         }
 
@@ -254,4 +270,29 @@
             }
         }
     </script>
+    <style>
+        /* Force High Contrast for Inputs & Selects */
+        .dataTables_wrapper input, 
+        .dataTables_wrapper select, 
+        .form-control, 
+        .form-select,
+        .select2-container--default .select2-selection--single,
+        .select2-container--default .select2-selection--single .select2-selection__rendered {
+            color: #000 !important;
+            background-color: #fff !important;
+            border-color: #ced4da !important;
+        }
+        
+        #basic-2_search {
+            min-width: 300px !important;
+            border: 2px solid #5587ff !important;
+            padding: 8px 12px !important;
+        }
+
+        .dataTables_wrapper .dataTables_filter {
+            margin-bottom: 20px !important;
+            float: left !important;
+            text-align: left !important;
+        }
+    </style>
 @endsection

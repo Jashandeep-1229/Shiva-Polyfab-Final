@@ -46,9 +46,11 @@
                             </select>
                         </div>
                         <div class="col-md-3 text-end d-flex gap-2 justify-content-end">
+                            @if(auth()->user()->role_as == 'Admin')
                             <button type="button" onclick="exportExcel()" class="btn btn-outline-success btn-sm px-3">
                                 <i class="fa fa-file-excel-o me-1"></i> Excel
                             </button>
+                            @endif
                             <button type="button" onclick="printReport()" class="btn btn-outline-danger btn-sm px-3">
                                 <i class="fa fa-file-pdf-o me-1"></i> PDF
                             </button>
@@ -162,7 +164,7 @@
         
         window.open(url, '_blank');
     }
-
+    @if(auth()->user()->role_as == 'Admin')
     function exportExcel() {
         var table = document.getElementById("remaining_stock_table");
         if(!table) return;
@@ -182,6 +184,7 @@
         link.download = "Remaining_Stock_List.xls";
         link.click();
     }
+    @endif
 
     function viewHistory(color_id, size_id) {
         $('#history_modal_content').html('<div class="loader-box"><div class="loader-37"></div></div>');

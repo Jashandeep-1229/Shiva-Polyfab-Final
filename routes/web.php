@@ -42,6 +42,10 @@ use App\Http\Controllers\Lead\AgentMasterController;
 use App\Http\Controllers\Lead\AgentReportController;
 use App\Http\Controllers\Lead\TeamController as LeadTeamController;
 use App\Http\Controllers\LeadAgentCustomerController;
+use App\Http\Controllers\EmployeeLogController;
+use App\Http\Controllers\FabricSizeCalculationController;
+use App\Http\Controllers\GsmCalculatorController;
+use App\Http\Controllers\ExecutiveTargetController;
 
 
 use App\Http\Controllers\Admin\AiIntelligenceController;
@@ -58,6 +62,12 @@ use App\Http\Controllers\AdminDashboardController;
 |
 */
 Route::get('/', [HomeController::class, 'login'])->name('new_login');
+
+Route::get('bill/share/{id}', [BillController::class, 'sharePdf'])->name('bill.share_pdf');
+Route::get('ledger/share/{id}', [CustomerLedgerController::class, 'sharePdf'])->name('customer_ledger.share_pdf');
+
+// WhatsApp Webhook
+Route::any('whatsapp/webhook', [\App\Http\Controllers\ChatController::class, 'webhook'])->name('chat.webhook');
 
 Auth::routes();
 
@@ -86,9 +96,35 @@ Route::group(['middleware' => ['auth']], function () {
         Route::post('ai-studio/generate-designs', [AiIntelligenceController::class, 'generateAIPremuimDesigns'])->name('ai_studio.generate_designs');
         Route::post('ai-studio/smart-parse', [AiIntelligenceController::class, 'smartParse'])->name('ai_studio.smart_parse');
         Route::post('ai-studio/store', [AiIntelligenceController::class, 'store'])->name('ai_studio.store');
+        Route::get('ai-studio/sessions', [AiIntelligenceController::class, 'getSessionList'])->name('ai_studio.get_sessions');
+        Route::get('ai-studio/session/{id}', [AiIntelligenceController::class, 'loadSession'])->name('ai_studio.load_session');
         Route::get('ai-studio/design/{id}', [AiIntelligenceController::class, 'showDesign'])->name('ai_studio.show_design');
         Route::post('ai-studio/approve/{id}', [AiIntelligenceController::class, 'approveDesign'])->name('ai_studio.approve');
         Route::get('ai-studio/convert/{id}', [AiIntelligenceController::class, 'convertToJobCard'])->name('ai_studio.convert');
+
+        // Employee Activity Log
+        Route::group(['prefix' => 'employee_logs'], function () {
+            Route::get('/', [EmployeeLogController::class, 'index'])->name('employee_log.index');
+            Route::get('datatable', [EmployeeLogController::class, 'datatable'])->name('employee_log.datatable');
+            Route::get('details/{id}', [EmployeeLogController::class, 'details'])->name('employee_log.details');
+            Route::post('delete-all', [EmployeeLogController::class, 'softDeleteAll'])->name('employee_log.delete_all');
+            Route::get('performance', [EmployeeLogController::class, 'performance'])->name('employee_log.performance');
+        });
+
+        // WhatsApp Chat Module
+        Route::controller(\App\Http\Controllers\ChatController::class)->group(function () {
+            Route::get('chat', 'index')->name('chat.index');
+            Route::get('chat/conversations', 'getConversations')->name('chat.conversations');
+            Route::get('chat/messages/{customerId}', 'getMessages')->name('chat.messages');
+            Route::get('chat/start', 'startNewChat')->name('chat.start');
+            Route::get('chat/seen/{customerId}', 'markSeen')->name('chat.seen');
+            Route::delete('chat/clear/{customerId}', 'clearChat')->name('chat.clear');
+            Route::delete('chat/delete-conversation/{id}', 'deleteConversation')->name('chat.delete_conversation');
+            Route::delete('chat/delete-message/{id}', 'deleteMessage')->name('chat.delete_message');
+            Route::get('chat/retry/{id}', 'retryMessage')->name('chat.retry');
+            Route::post('chat/send-template', 'sendWelcomeTemplate')->name('chat.send_template');
+            Route::post('chat/send', 'sendMessage')->name('chat.send');
+        });
 
         // Master Shared Routes (Job Card, Stock, etc.)
         Route::resource('job_card', JobCardController::class);
@@ -139,6 +175,8 @@ Route::group(['middleware' => ['auth']], function () {
         Route::get('manage_stocks/edit_modal/{id}', [ManageStockController::class, 'edit_modal'])->name('manage_stock.edit_modal');
         Route::get('manage_stocks/delete/{id}', [ManageStockController::class, 'delete'])->name('manage_stock.delete');
         Route::get('manage_stocks/get_current_stock/{id}', [ManageStockController::class, 'get_current_stock'])->name('manage_stock.get_current_stock');
+        Route::get('manage_stocks/bulk_modal', [ManageStockController::class, 'bulk_modal'])->name('manage_stock.bulk_modal');
+        Route::post('manage_stocks/bulk_store', [ManageStockController::class, 'bulk_store'])->name('manage_stock.bulk_store');
         Route::get('manage_stocks/average_index/', [ManageStockController::class, 'average_index'])->name('manage_stock.average_index');
         Route::get('manage_stocks/average_datatable/', [ManageStockController::class, 'average_datatable'])->name('manage_stock.average_datatable');
         Route::get('manage_stocks/history/', [ManageStockController::class, 'history_index'])->name('manage_stock.history');
@@ -187,6 +225,7 @@ Route::group(['middleware' => ['auth']], function () {
         Route::get('customer_ledgers/logs', [CustomerLedgerController::class, 'logs_index'])->name('customer_ledger.logs');
         Route::get('customer_ledgers/logs_datatable', [CustomerLedgerController::class, 'logs_datatable'])->name('customer_ledger.logs_datatable');
         Route::get('customer_ledgers/individual_pdf/{id}', [CustomerLedgerController::class, 'export_individual_ledger_pdf'])->name('customer_ledger.individual_pdf');
+        Route::get('customer_ledgers/whatsapp_summary/{id}', [CustomerLedgerController::class, 'sendWhatsAppSummary'])->name('customer_ledger.whatsapp_summary');
 
         // Ledger Followups
         Route::get('ledger_followups', [\App\Http\Controllers\LedgerFollowupController::class, 'index'])->name('ledger_followup.index');
@@ -214,6 +253,7 @@ Route::group(['middleware' => ['auth']], function () {
         Route::get('bills/{id}/edit', [BillController::class, 'edit'])->name('bill.edit');
         Route::post('bills/update/{id}', [BillController::class, 'update'])->name('bill.update');
         Route::get('bills/{id}/pdf', [BillController::class, 'show'])->name('bill.pdf');
+        Route::get('bills/whatsapp/{id}', [BillController::class, 'send_whatsapp'])->name('bill.whatsapp');
         Route::get('bills/delete/{id}', [BillController::class, 'destroy'])->name('bill.delete');
 
         // Lists accessible to all authorized roles
@@ -325,6 +365,19 @@ Route::group(['middleware' => ['auth']], function () {
             Route::get('size_master/delete/{id}', [SizeMasterController::class, 'delete'])->name('size_master.delete');
             Route::get('size_master/change_status/{id}', [SizeMasterController::class, 'change_status'])->name('size_master.change_status');
             Route::post('size_master/store', [SizeMasterController::class, 'store'])->name('size_master.store');
+
+            Route::get('fabric_size', [FabricSizeCalculationController::class, 'index'])->name('fabric_size.index');
+            Route::get('fabric_size/datatable', [FabricSizeCalculationController::class, 'datatable'])->name('fabric_size.datatable');
+            Route::get('fabric_size/edit_modal/{id}', [FabricSizeCalculationController::class, 'edit_modal'])->name('fabric_size.edit_modal');
+            Route::get('fabric_size/delete/{id}', [FabricSizeCalculationController::class, 'delete'])->name('fabric_size.delete');
+            Route::get('fabric_size/change_status/{id}', [FabricSizeCalculationController::class, 'change_status'])->name('fabric_size.change_status');
+            Route::post('fabric_size/store', [FabricSizeCalculationController::class, 'store'])->name('fabric_size.store');
+
+            Route::get('gsm_calculator', [GsmCalculatorController::class, 'index'])->name('gsm_calculator.index');
+            Route::get('gsm_calculator/get_length', [GsmCalculatorController::class, 'get_length'])->name('gsm_calculator.get_length');
+
+            Route::get('executive_target', [ExecutiveTargetController::class, 'index'])->name('executive_target.index');
+            Route::get('executive_target/datatable', [ExecutiveTargetController::class, 'datatable'])->name('executive_target.datatable');
 
             // Team Management Routes
             Route::get('team', [TeamController::class, 'index'])->name('team.index');

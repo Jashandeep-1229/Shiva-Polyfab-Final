@@ -45,7 +45,7 @@ class CommonPackingSlipController extends Controller
 
     public function pdf($id)
     {
-        $packing_slip = PackingSlip::with('packing_details.job_card.customer_agent')->find($id);
+        $packing_slip = PackingSlip::with(['packing_details.job_card.customer_agent', 'packing_details.size', 'packing_details.color'])->find($id);
         if($packing_slip){
             // For common packing slips, we might have multiple job cards. 
             // We'll pick the customer from the first detail's job card.
@@ -74,7 +74,7 @@ class CommonPackingSlipController extends Controller
     public function store(Request $request)
     {
         if (!\App\Helpers\PermissionHelper::check('packing_slip_common', 'add')) {
-            return response()->json(['result' => -1, 'message' => 'Access Denied! You do not have permission to add packing slips.']);
+            return response()->json(['result' => -1, 'message' => 'Access Denied!']);
         }
         $request->validate([
             'customer_agent_id' => 'required',
@@ -87,37 +87,28 @@ class CommonPackingSlipController extends Controller
 
         DB::beginTransaction();
         try {
-            // 1. Initial Data Prep
             $total_weight = collect($request->items)->sum('weight');
             $total_bags = count($request->items);
+            $groupedItems = collect($request->items)->groupBy(fn($i) => $i['size_id'] . '-' . $i['color_id']);
 
-            // Group items by Size + Color for validation and job card creation
-            $groupedItems = collect($request->items)->groupBy(function ($item) {
-                return $item['size_id'] . '-' . $item['color_id'];
-            });
-
-            // 2. STOCK VALIDATION
+            // 1. STOCK VALIDATION
             foreach ($groupedItems as $key => $bags) {
                 $firstBag = $bags->first();
-                $size_id = $firstBag['size_id'];
-                $color_id = $firstBag['color_id'];
-                $required_weight = $bags->sum('weight'); // Correct: Summing weights in KG
+                $size = SizeMaster::find($firstBag['size_id']);
+                $color = ColorMaster::find($firstBag['color_id']);
+                $required_weight = $bags->sum('weight');
 
-                $size = SizeMaster::find($size_id);
-                $color = ColorMaster::find($color_id);
-
-                // Calculate Current available stock for this combo
-                $current_stock = CommonManageStock::where('color_id', $color_id)
-                    ->where('size_id', $size_id)
+                $current_stock = CommonManageStock::where('color_id', $color->id)
+                    ->where('size_id', $size->id)
                     ->selectRaw("SUM(CASE WHEN in_out = 'In' THEN quantity ELSE -quantity END) as total")
                     ->first()->total ?? 0;
 
                 if ($required_weight > $current_stock) {
-                    throw new \Exception("Insufficient stock for {$color->name} - {$size->name}. Available: " . number_format($current_stock, 3) . " KG, Required: " . number_format($required_weight, 3) . " KG.");
+                    throw new \Exception("Insufficient stock for {$color->name} - {$size->name}. Available: " . number_format($current_stock, 3) . " KG.");
                 }
             }
 
-            // 3. CREATE PACKING SLIP
+            // 2. CREATE PACKING SLIP (SILENTLY)
             $lastSlip = PackingSlip::latest('id')->first();
             $nextId = $lastSlip ? $lastSlip->id + 1 : 1;
             $packing_slip_no = 'PSC-' . $nextId;
@@ -134,17 +125,17 @@ class CommonPackingSlipController extends Controller
             $packing_slip->packing_date = $request->date;
             $packing_slip->dispatch_date = $request->date;
             $packing_slip->complete_date = $request->date;
-            $packing_slip->remarks = "Weight-based Common Packing Slip. (Auto Stock-Out: {$total_weight} KG)";
-            $packing_slip->status = 2; // Directly Complete
+            $packing_slip->remarks = "Created via Common Packing Slip #{$packing_slip_no}";
+            $packing_slip->status = 2; 
             $packing_slip->dispatch_by = Auth::id();
-            $packing_slip->save();
+            
+            PackingSlip::withoutEvents(fn() => $packing_slip->save());
 
-            // 4. CREATE SINGLE JOB CARD FOR ACCOUNT PENDING
+            // 3. CREATE JOB CARD (SILENTLY)
             $jobCard = new JobCard();
             $jobCard->user_id = Auth::id();
             $jobCard->job_type = 'Common';
             $jobCard->name_of_job = "Common Packing - " . $packing_slip->packing_slip_no;
-            // We use actual_pieces to store the total weight for display in datatable
             $jobCard->no_of_pieces = (int)$total_weight;
             $jobCard->actual_pieces = $total_weight;
             $jobCard->job_card_date = $request->date;
@@ -153,68 +144,80 @@ class CommonPackingSlipController extends Controller
             $jobCard->status = 'Account Pending';
             $jobCard->job_card_process = 'Account Pending';
             $jobCard->is_editable = 1;
-            $jobCard->save();
-            // Link Job Card to Packing Slip
+            
+            JobCard::withoutEvents(fn() => $jobCard->save());
+
             $packing_slip->job_card_id = $jobCard->id;
-            $packing_slip->save();
+            PackingSlip::withoutEvents(fn() => $packing_slip->save());
 
-            // Initial Process
-            JobCardProcess::create([
-                'from_where' => 'Common Packing',
-                'user_id' => Auth::id(),
-                'job_card_id' => $jobCard->id,
-                'date' => now(),
-                'process_name' => 'Account Pending',
-                'process_start_date' => now(),
-                'process_remarks' => "Created via Packing Slip #{$packing_slip_no}. Bags: {$total_bags}, Weight: {$total_weight}kg",
-                'status' => 1
-            ]);
-
-            // 5. PROCESS GROUPS (Stock Out + Details Linking)
+            // 4. PROCESS GROUPS (Stock Out + Details Linking)
+            $itemsSummary = [];
             foreach ($groupedItems as $key => $bags) {
                 $firstBag = $bags->first();
                 $size = SizeMaster::find($firstBag['size_id']);
                 $color = ColorMaster::find($firstBag['color_id']);
-                
                 $group_weight = $bags->sum('weight');
-                $group_bags = $bags->count();
 
-                // DEDUCT STOCK
-                CommonManageStock::create([
+                $itemsSummary[] = [
+                    'size' => $size->name,
+                    'color' => $color->name,
+                    'weight' => $group_weight,
+                    'bags' => count($bags)
+                ];
+
+                // DEDUCT STOCK (SILENTLY)
+                CommonManageStock::withoutEvents(fn() => CommonManageStock::create([
                     'user_id' => Auth::id(),
                     'date' => $request->date,
                     'in_out' => 'Out',
                     'color_id' => $color->id,
                     'size_id' => $size->id,
                     'quantity' => $group_weight,
-                    'remarks' => "Stock Deducted via Packing Slip #{$packing_slip_no}",
+                    'remarks' => "Stock Out (PSC-{$nextId})",
                     'from' => 'Packing Slip',
                     'from_id' => $packing_slip->id
-                ]);
+                ]));
 
-                // Create Individual Packing Details (Bags) and link to the SINGLE Job Card
                 foreach ($bags as $bag) {
-                    $packing_detail = new PackingDetail();
-                    $packing_detail->packing_slip_id = $packing_slip->id;
-                    $packing_detail->job_card_id = $jobCard->id;
-                    $packing_detail->size_id = $bag['size_id'];
-                    $packing_detail->color_id = $bag['color_id'];
-                    $packing_detail->weight = $bag['weight'];
-                    $packing_detail->start_date = $request->date;
-                    $packing_detail->complete_date = $request->date;
-                    $packing_detail->complete_by = Auth::id();
-                    $packing_detail->status = 2; // Complete
-                    $packing_detail->save();
+                    $pd = new PackingDetail();
+                    $pd->packing_slip_id = $packing_slip->id;
+                    $pd->job_card_id = $jobCard->id;
+                    $pd->size_id = $bag['size_id'];
+                    $pd->color_id = $bag['color_id'];
+                    $pd->weight = $bag['weight'];
+                    $pd->status = 2; // Complete
+                    PackingDetail::withoutEvents(fn() => $pd->save());
                 }
             }
 
+            // 5. ONE UNIFIED LOG
+            activity('PackingSlip')
+                ->performedOn($packing_slip)
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'context' => [
+                        'ps_no' => $packing_slip_no,
+                        'job_name' => $jobCard->name_of_job,
+                        'total_weight' => $total_weight,
+                        'total_bags' => $total_bags,
+                        'items' => $itemsSummary,
+                        'stock_out' => true,
+                        'job_card_created' => true,
+                        'status' => 'Account Pending',
+                        'event_type' => 'common_created'
+                    ]
+                ])
+                ->log("Packing Slip Ref: {$packing_slip_no} (Stock Out & Account Pending Created)");
+
             DB::commit();
-            return response()->json(['result' => 1, 'message' => 'Common Packing Slip Saved Successfully. Stock updated and moved to Account Pending.']);
+            return response()->json(['result' => 1, 'message' => 'Common Packing Slip Saved Successfully.']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['result' => 0, 'message' => 'Error: ' . $e->getMessage()]);
         }
     }
+
+
 
     public function edit($id)
     {
@@ -259,42 +262,43 @@ class CommonPackingSlipController extends Controller
             return response()->json(['result' => 0, 'message' => 'Packing Slip not found']);
         }
 
+        $oldValues = [
+            'total_weight' => $packing_slip->total_weight,
+            'total_bags' => $packing_slip->total_bags,
+            'remarks' => $packing_slip->remarks,
+            'items' => PackingDetail::where('packing_slip_id', $id)->with(['size', 'color'])->get()->map(function($d) {
+                return [
+                    'size' => $d->size->name ?? 'N/A',
+                    'color' => $d->color->name ?? 'N/A',
+                    'weight' => $d->weight
+                ];
+            })->toArray()
+        ];
+
         DB::beginTransaction();
         try {
-            // 1. REVERT OLD STOCK AND DELETE OLD DATA
-            // Get all Job Cards linked to this slip
+            // 1. REVERT OLD STOCK AND DELETE OLD DATA (SILENTLY)
             $jobCardIds = PackingDetail::where('packing_slip_id', $id)->pluck('job_card_id')->unique();
             
-            // Delete Stock Records
-            CommonManageStock::where('from', 'Packing Slip')->where('from_id', $id)->delete();
-            
-            // Delete Packing Details
-            PackingDetail::where('packing_slip_id', $id)->delete();
-            
-            // Delete Job Card Processes and Job Cards
-            JobCardProcess::whereIn('job_card_id', $jobCardIds)->delete();
-            JobCard::whereIn('id', $jobCardIds)->delete();
+            CommonManageStock::withoutEvents(fn() => CommonManageStock::where('from', 'Packing Slip')->where('from_id', $id)->delete());
+            PackingDetail::withoutEvents(fn() => PackingDetail::where('packing_slip_id', $id)->delete());
+            JobCardProcess::withoutEvents(fn() => JobCardProcess::whereIn('job_card_id', $jobCardIds)->delete());
+            JobCard::withoutEvents(fn() => JobCard::whereIn('id', $jobCardIds)->delete());
 
-            // 2. NEW DATA PREP (Same logic as store)
+            // 2. NEW DATA PREP
             $total_weight = collect($request->items)->sum('weight');
             $total_bags = count($request->items);
-
-            $groupedItems = collect($request->items)->groupBy(function ($item) {
-                return $item['size_id'] . '-' . $item['color_id'];
-            });
+            $groupedItems = collect($request->items)->groupBy(fn($i) => $i['size_id'] . '-' . $i['color_id']);
 
             // 3. STOCK VALIDATION
             foreach ($groupedItems as $key => $bags) {
                 $firstBag = $bags->first();
-                $size_id = $firstBag['size_id'];
-                $color_id = $firstBag['color_id'];
+                $size = SizeMaster::find($firstBag['size_id']);
+                $color = ColorMaster::find($firstBag['color_id']);
                 $required_weight = $bags->sum('weight');
 
-                $size = SizeMaster::find($size_id);
-                $color = ColorMaster::find($color_id);
-
-                $current_stock = CommonManageStock::where('color_id', $color_id)
-                    ->where('size_id', $size_id)
+                $current_stock = CommonManageStock::where('color_id', $color->id)
+                    ->where('size_id', $size->id)
                     ->selectRaw("SUM(CASE WHEN in_out = 'In' THEN quantity ELSE -quantity END) as total")
                     ->first()->total ?? 0;
 
@@ -303,7 +307,7 @@ class CommonPackingSlipController extends Controller
                 }
             }
 
-            // 4. UPDATE PACKING SLIP
+            // 4. UPDATE PACKING SLIP (SILENTLY)
             $packing_slip->total_weight = $total_weight;
             $packing_slip->dispatch_weight = $total_weight;
             $packing_slip->total_bags = $total_bags;
@@ -311,9 +315,10 @@ class CommonPackingSlipController extends Controller
             $packing_slip->packing_date = $request->date;
             $packing_slip->dispatch_date = $request->date;
             $packing_slip->complete_date = $request->date;
-            $packing_slip->save();
+            
+            PackingSlip::withoutEvents(fn() => $packing_slip->save());
 
-            // 5. CREATE SINGLE JOB CARD
+            // 5. CREATE SINGLE JOB CARD (SILENTLY)
             $jobCard = new JobCard();
             $jobCard->user_id = Auth::id();
             $jobCard->job_type = 'Common';
@@ -326,66 +331,88 @@ class CommonPackingSlipController extends Controller
             $jobCard->status = 'Account Pending';
             $jobCard->job_card_process = 'Account Pending';
             $jobCard->is_editable = 1;
-            $jobCard->save();
+            JobCard::withoutEvents(fn() => $jobCard->save());
 
-            // Link Job Card to Packing Slip
             $packing_slip->job_card_id = $jobCard->id;
-            $packing_slip->save();
-
-            JobCardProcess::create([
-                'from_where' => 'Common Packing',
-                'user_id' => Auth::id(),
-                'job_card_id' => $jobCard->id,
-                'date' => now(),
-                'process_name' => 'Account Pending',
-                'process_start_date' => now(),
-                'process_remarks' => "Updated via Packing Slip #{$packing_slip->packing_slip_no}. Bags: {$total_bags}, Weight: {$total_weight}kg",
-                'status' => 1
-            ]);
+            PackingSlip::withoutEvents(fn() => $packing_slip->save());
 
             // 6. PROCESS GROUPS (Stock Out + Details Linking)
+            $itemsSummary = [];
             foreach ($groupedItems as $key => $bags) {
                 $firstBag = $bags->first();
                 $size = SizeMaster::find($firstBag['size_id']);
                 $color = ColorMaster::find($firstBag['color_id']);
-                
                 $group_weight = $bags->sum('weight');
-                $group_bags = $bags->count();
 
-                CommonManageStock::create([
+                $itemsSummary[] = [
+                    'size' => $size->name,
+                    'color' => $color->name,
+                    'weight' => $group_weight,
+                    'bags' => count($bags)
+                ];
+
+                CommonManageStock::withoutEvents(fn() => CommonManageStock::create([
                     'user_id' => Auth::id(),
                     'date' => $request->date,
                     'in_out' => 'Out',
                     'color_id' => $color->id,
                     'size_id' => $size->id,
                     'quantity' => $group_weight,
-                    'remarks' => "Stock Updated via Packing Slip #{$packing_slip->packing_slip_no}",
+                    'remarks' => "Stock Updated (PSC-{$packing_slip->id})",
                     'from' => 'Packing Slip',
                     'from_id' => $packing_slip->id
-                ]);
+                ]));
 
                 foreach ($bags as $bag) {
-                    $packing_detail = new PackingDetail();
-                    $packing_detail->packing_slip_id = $packing_slip->id;
-                    $packing_detail->job_card_id = $jobCard->id;
-                    $packing_detail->size_id = $bag['size_id'];
-                    $packing_detail->color_id = $bag['color_id'];
-                    $packing_detail->weight = $bag['weight'];
-                    $packing_detail->start_date = $request->date;
-                    $packing_detail->complete_date = $request->date;
-                    $packing_detail->complete_by = Auth::id();
-                    $packing_detail->status = 2;
-                    $packing_detail->save();
+                    $pd = new PackingDetail();
+                    $pd->packing_slip_id = $packing_slip->id;
+                    $pd->job_card_id = $jobCard->id;
+                    $pd->size_id = $bag['size_id'];
+                    $pd->color_id = $bag['color_id'];
+                    $pd->weight = $bag['weight'];
+                    $pd->status = 2;
+                    PackingDetail::withoutEvents(fn() => $pd->save());
                 }
             }
 
+            // 7. CAPTURE CHANGES AND LOG ONE UNIFIED 'UPDATED' EVENT
+            $newValues = [
+                'total_weight' => $total_weight,
+                'total_bags' => $total_bags,
+                'remarks' => $packing_slip->remarks,
+                'items' => $itemsSummary
+            ];
+
+            activity('PackingSlip')
+                ->performedOn($packing_slip)
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'old' => $oldValues,
+                    'attributes' => $newValues,
+                    'context' => [
+                        'ps_no' => $packing_slip->packing_slip_no,
+                        'job_name' => $jobCard->name_of_job,
+                        'total_weight' => $total_weight,
+                        'total_bags' => $total_bags,
+                        'items' => $itemsSummary,
+                        'stock_out' => true,
+                        'job_card_created' => true,
+                        'status' => 'Account Pending',
+                        'event_type' => 'common_updated' // Use high-detail view
+                    ]
+                ])
+                ->event('updated')
+                ->log("Packing Slip Ref: {$packing_slip->packing_slip_no} Updated");
+
             DB::commit();
-            return response()->json(['result' => 1, 'message' => 'Common Packing Slip Updated Successfully. Stock re-calculated.']);
+            return response()->json(['result' => 1, 'message' => 'Common Packing Slip Updated Successfully.']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['result' => 0, 'message' => 'Error: ' . $e->getMessage()]);
         }
     }
+
+
 
     public function delete($id)
     {
@@ -412,6 +439,33 @@ class CommonPackingSlipController extends Controller
             
             // Delete Job Cards
             JobCard::whereIn('id', $jobCardIds)->delete();
+
+            // CAPTURE CONTEXT BEFORE DELETE FOR AUDIT LOG
+            $itemsSummary = PackingDetail::where('packing_slip_id', $id)->with(['size', 'color'])->get()->map(function($d) {
+                return [
+                    'size' => $d->size->name ?? 'N/A',
+                    'color' => $d->color->name ?? 'N/A',
+                    'weight' => $d->weight
+                ];
+            })->toArray();
+            
+            $jobCard = JobCard::find($jobCardIds->first());
+
+            activity('PackingSlip')
+                ->performedOn($packing_slip)
+                ->causedBy(Auth::user())
+                ->withProperties([
+                    'context' => [
+                        'ps_no' => $packing_slip->packing_slip_no,
+                        'job_name' => $jobCard->name_of_job ?? 'N/A',
+                        'total_weight' => $packing_slip->total_weight,
+                        'total_bags' => $packing_slip->total_bags,
+                        'items' => $itemsSummary,
+                        'event_type' => 'common_deleted'
+                    ]
+                ])
+                ->event('deleted')
+                ->log("Packing Slip Ref: {$packing_slip->packing_slip_no} Deleted");
 
             // Finally Delete Packing Slip
             $packing_slip->delete();

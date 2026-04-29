@@ -97,23 +97,58 @@ Job Card {{request()->type ?? 'new' }}
                                     @endif
                                 </div>
                             </div>
+                              <div class="col-md-2 col-6 mb-2">
+                                   <div class="input-group input-group-sm">
+                                     <select name="no_of_pieces" id="no_of_pieces_est" class="form-select form-control-sm" aria-label="Example select with button addon" required onchange="calculate_weight_est()">
+                                         <option value="" selected disabled>No Of Pieces</option>
+                                         <option value="5000">5000</option>
+                                         <option value="7000">7000</option>
+                                         <option value="10000">10000</option>
+                                         <option value="12000">12000</option>
+                                         <option value="15000">15000</option>
+                                         <option value="20000">20000</option>
+                                         <option value="25000">25000</option>
+                                         <option value="30000">30000</option>
+                                         <option value="50000">50000</option>
+                                     </select>
+                                 </div>
+                             </div>
+                             <!-- Weight Estimation Section -->
                              <div class="col-md-2 col-6 mb-2">
-                                  <div class="input-group input-group-sm">
-                                    <select name="no_of_pieces" id="no_of_pieces" class="form-select form-control-sm" aria-label="Example select with button addon" required>
-                                        <option selected="">No Of Pieces</option>
-                                        <option value="5000">5000</option>
-                                        <option value="7000">7000</option>
-                                        <option value="10000">10000</option>
-                                        <option value="12000">12000</option>
-                                        <option value="15000">15000</option>
-                                        <option value="20000">20000</option>
-                                        <option value="25000">25000</option>
-                                        <option value="30000">30000</option>
-                                        <option value="50000">50000</option>
-                                        
+                                <div class="input-group input-group-sm">
+                                    <select name="bag_type" id="bag_type" class="form-select form-control-sm" onchange="get_field_estimate(this.value)">
+                                        <option value="">Bag Type</option>
+                                        <option value="Box Bag">Box Bag</option>
+                                        <option value="Loop Bag">Loop Bag</option>
+                                        <option value="DCut Bag">DCut Bag</option>
+                                        <option value="Twist Bag">Twist Bag</option>
                                     </select>
                                 </div>
-                            </div>
+                             </div>
+                             <div class="col-md-1 col-6 mb-2">
+                                <input type="number" step="any" name="width" id="width_est" placeholder="Width" class="form-control form-control-sm" oninput="calculate_weight_est()">
+                             </div>
+                             <div class="col-md-1 col-6 mb-2">
+                                <input type="number" step="any" name="length" id="length_est" placeholder="Height" class="form-control form-control-sm" oninput="calculate_weight_est()">
+                             </div>
+                             <div class="col-md-1 col-6 mb-2" id="guzzete_div_est" style="display:none">
+                                <input type="number" step="any" name="guzzete" id="guzzete_est" placeholder="Guz." class="form-control form-control-sm" oninput="calculate_weight_est()">
+                             </div>
+                             <div class="col-md-1 col-6 mb-2">
+                                <input type="number" step="any" name="gsm" id="gsm_est" placeholder="GSM" class="form-control form-control-sm" oninput="calculate_weight_est()">
+                             </div>
+                             <div class="col-md-2 col-6 mb-2">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">Gm/Pc</span>
+                                    <input type="number" step="any" name="estimate_weight_pcs" id="estimate_weight_pcs_est" class="form-control form-control-sm border-primary fw-bold text-dark" readonly style="background: #fdfdfd !important; min-width: 80px;">
+                                </div>
+                             </div>
+                             <div class="col-md-3 col-6 mb-2">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">Est.KG</span>
+                                    <input type="number" step="any" name="total_weight_kg" id="total_weight_kg_est" class="form-control form-control-sm border-info fw-bold text-dark" readonly style="background: #f0f7ff !important; min-width: 100px;">
+                                </div>
+                             </div>
                             <div class="col-md-3 col-6 mb-2">
                                 <div class="input-group input-group-sm">
                                     <select name="loop_color" id="loop_color" class="form-select form-control-sm" required>
@@ -668,12 +703,19 @@ Job Card {{request()->type ?? 'new' }}
             });
         }
 
+        var isSubmitting = false;
         $(document).on('submit','form',function(event){
             event.preventDefault();
+            if(isSubmitting) return;
+            
             var form = event.target;
             var form_data = new FormData(form);
-            var $submitBtn = $('form button[type="submit"]');
-            $submitBtn.addClass('disabled');
+            var $submitBtn = $(form).find('button[type="submit"]');
+            
+            isSubmitting = true;
+            var originalText = $submitBtn.html();
+            $submitBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+
             $.ajax({
                 url: $(event.target).attr('action'),
                 type: 'POST',
@@ -681,6 +723,9 @@ Job Card {{request()->type ?? 'new' }}
                 processData: false,
                 contentType: false,
                 success: function(data){
+                    isSubmitting = false;
+                    $submitBtn.prop('disabled', false).html(originalText);
+
                     if(data.result == 1){
                         $.notify({ title:'Success', message:data.message }, { type:'success', });
 
@@ -695,39 +740,35 @@ Job Card {{request()->type ?? 'new' }}
                         // Job Card specific logic
                         if(data.from == 'Job Card'){
                             var formId = $(form).find('input[name="id"]').val();
-                            if (formId) {
+                            if (formId && formId != 0) {
                                 // It's an update, just update the single row
                                 update_single_row(formId);
                             } else {
                                 // It's a creation, reload table
-                                var page = Number($(".pages").find('span[aria-current="page"] span').text());
-                                $('#name_of_job').val('');
-                                $('#sale_executive_id').prop('selectedIndex', 0).trigger('change');
-                                $('#customer_agent_id').prop('selectedIndex', 0).trigger('change');
-                                $('#fabric_id').prop('selectedIndex', 0).trigger('change');
-                                $('#bopp_id').prop('selectedIndex', 0).trigger('change');
-                                $('#no_of_pieces').prop('selectedIndex', 0).trigger('change');
-                                $('#cylinder_given_id').prop('selectedIndex', 0).trigger('change');
-                                $('#loop_color').prop('selectedIndex', 0).trigger('change');
-                                $('#dispatch_date').val('');
-                                $('#remarks').val('');
-                                $('#file_upload').val('');
+                                var page = Number($(".pages").find('span[aria-current="page"] span').text()) || 1;
+                                
+                                // Reset Form Robustly
+                                form.reset();
+                                $(form).find('select').val('').trigger('change');
+                                $('#img_preview_col').addClass('d-none');
+                                $('#old_data_img_path').val('');
+                                
                                 get_datatable(page);
                                 $("#name_of_job").focus();
                             }
                         }
 
-                        // Clean up modals and buttons
-                        $submitBtn.html('Save').removeClass('disabled');
+                        // Clean up modals
                         $('#edit_modal').modal('hide');
                         $('#job_card_modal').modal('hide');
                     } else {
-                        // Handle errors or validation messages (result != 1)
                         $.notify({ title:'Error', message:data.message }, { type:'danger', });
-                        $submitBtn.html('Save').removeClass('disabled');
                     }
                 },
-                error: function() { $submitBtn.html('Save').removeClass('disabled'); }
+                error: function() { 
+                    isSubmitting = false;
+                    $submitBtn.prop('disabled', false).html(originalText);
+                }
             });
         });
 
@@ -879,6 +920,62 @@ Job Card {{request()->type ?? 'new' }}
                 }
             });
         }
+
+        // --- Weight Estimation Logics ---
+        function get_field_estimate(value) {
+            if (value == 'Box Bag' || value == 'Twist Bag') {
+                $('#guzzete_div_est').show();
+            } else {
+                $('#guzzete_est').val('');
+                $('#guzzete_div_est').hide();
+            }
+            if (value == 'Box Bag') $('#gsm_est').val('110');
+            else if (value) $('#gsm_est').val('80');
+            calculate_weight_est();
+        }
+
+        function calculate_weight_est() {
+            var box_type = $('#bag_type').val();
+            var width = parseFloat($('#width_est').val()) || 0;
+            var length = parseFloat($('#length_est').val()) || 0;
+            var guzzete = parseFloat($('#guzzete_est').val()) || 0;
+            var gsm = parseFloat($('#gsm_est').val()) || 0;
+            var pcs = parseFloat($('#no_of_pieces_est').val()) || 0;
+
+            if (!box_type || width <= 0 || length <= 0 || gsm <= 0) {
+                $('#estimate_weight_pcs_est').val('');
+                $('#total_weight_kg_est').val('');
+                return;
+            }
+
+            var folding = 0;
+            var extra_gram = 3;
+            var material_weight = 1.5;
+
+            if (box_type == 'Box Bag') folding = 1.5;
+            else if (box_type == 'Loop Bag') { folding = 1; guzzete = 0; }
+            else if (box_type == 'DCut Bag') { folding = 3; extra_gram = 0; guzzete = 0; }
+            else if (box_type == 'Twist Bag') folding = 0;
+
+            var extra_again = guzzete > 0 ? 0.5 : 0;
+            var new_width = width + guzzete + extra_again;
+            var new_length = (box_type == 'Twist Bag') ? (length + folding) * 2 : (length + (guzzete / 2) + folding) * 2;
+
+            var again_new_length = new_length / 2; 
+
+            var total_calculate = new_width * again_new_length * gsm * 4;
+            var per_pcs_gm = (total_calculate / 3100) + extra_gram + material_weight;
+            
+            $('#estimate_weight_pcs_est').val(per_pcs_gm.toFixed(2));
+            
+            if (pcs > 0) {
+                var total_kg = (per_pcs_gm * pcs / 1000).toFixed(2);
+                $('#total_weight_kg_est').val(total_kg);
+            } else {
+                $('#total_weight_kg_est').val('');
+            }
+        }
+        // --- End Weight Estimation ---
 
         function showHoldAlert(jobCardNo, reasonId) {
             swal({

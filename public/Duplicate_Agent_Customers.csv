@@ -1,0 +1,13 @@
+ID,Code,Name,Phone,Role,Status,Executive,"Created By ID","Created By Name",Address,City,State
+151,SPFC15141280,"INDRA VALUES",9815963356,Customer,Active,"RAVI LDH",4,"Gurpreet Data",,,
+413,SPFC4136037,"INDRA VALUES",9216953001,Customer,Active,Gourav,6,Gourav,,Ludhiana,Punjab
+375,SPFC3754161,Jashan,9872989720,Customer,Active,"Lead Admin",19,"Lead Admin",,Ludhiana,Punjab
+376,SPFC3767274,Jashan,9872989720,Customer,Active,"Lead Admin",19,"Lead Admin",,Ludhiana,Punjab
+176,SPFA17687034,"SACHDEVA  TRADERS",7017007098,Agent,Active,Parminder,4,"Gurpreet Data",,,
+490,SPFA49060643,"SACHDEVA  TRADERS",7017007098,Agent,Active,Parminder,1,Admin,,Saharanpur,"Uttar Pradesh"
+377,SPFC3774891,Shivam,8284946585,Customer,Active,"Lead Admin",19,"Lead Admin",,Ludhiana,Punjab
+378,SPFC3781632,Shivam,8284946585,Customer,Active,"Lead Admin",19,"Lead Admin",,Ludhiana,Punjab
+111,SPFC11188183,"SHREE GANESH",9893498737,Customer,Active,Gourav,4,"Gurpreet Data",,,
+409,SPFC4097987,"SHREE GANESH",9893351670,Customer,Inactive,Jyoti,9,Jyoti,,,"Madhya Pradesh"
+181,SPFA18146284,"SHREE SHYAM BAG",9852068854,Agent,Inactive,Parminder,4,"Gurpreet Data",,,
+498,SPFA49872891,"SHREE SHYAM BAG",7903192015,Agent,Active,Parminder,4,"Gurpreet Data","Mouza No 12 Khata No 123, Near Goal Building, Saraidhela Dhanbad",Dhanbad,Jharkhand

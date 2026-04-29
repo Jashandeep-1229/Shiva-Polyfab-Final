@@ -16,6 +16,8 @@ use App\Models\Machine;
 use App\Models\BlockageReason;
 use App\Models\User;
 use App\Models\CustomerLedger;
+use App\Models\Transport;
+use App\Jobs\SendBillWhatsAppJob;
 use App\Helpers\PermissionHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -116,6 +118,9 @@ class JobCardController extends Controller
         return view('admin.job_card.datatable',compact('job_card'));
     }
     public function edit_modal(Request $request,$id){
+        if (auth()->user()->role_as != 'Admin') {
+            return '<div class="alert alert-danger p-2">Access Denied! Only Admins can edit orders.</div>';
+        }
         $job_card = JobCard::find($id);
         $bopps = Bopp::where('status',1)->get();
         $fabrics = Fabric::where('status',1)->get();
@@ -252,9 +257,9 @@ class JobCardController extends Controller
         $menu_key = ($input['job_type'] ?? 'new') == 'Common' ? 'common_orders' : 'roto_orders';
         
         if (!empty($input['id'])) {
-            // Update
-            if (!PermissionHelper::check($menu_key, 'edit')) {
-                return response()->json(['result' => -1, 'message' => 'Access Denied! You do not have permission to edit this order.']);
+            // Update - Only Admin allowed
+            if (auth()->user()->role_as != 'Admin') {
+                return response()->json(['result' => -1, 'message' => 'Access Denied! Only Admins are allowed to edit orders.']);
             }
         } else {
             // New Create
@@ -263,21 +268,22 @@ class JobCardController extends Controller
             }
         }
 
-        $input['job_card_date'] = now();
-        $input['user_id'] = auth()->user()->id;
-        $input['is_editable'] = 1;
-        $input['actual_pieces'] = $input['no_of_pieces'];
-        $input['software_remarks'] = 'New job Card Created - '.$input['job_type'];
-        if($input['job_type'] == 'new'){
+        if (empty($input['id'])) {
+            $input['job_card_date'] = now();
+            $input['user_id'] = auth()->user()->id;
+            $input['is_editable'] = 1;
+            $input['actual_pieces'] = $input['no_of_pieces'];
+            $input['software_remarks'] = 'New job Card Created - '.$input['job_type'];
+            
+            if($input['job_type'] == 'new'){
                 $input['job_card_process'] = 'Cylinder Come';
                 $input['status'] = 'Pending';
-        }
-        else{
+            }
+            else{
                 $input['job_card_process'] = 'Order List';
                 $input['status'] = 'Pending';
-        }
+            }
 
-        if (empty($input['id'])) {
             $now = now();
             $startYear = $now->month >= 4 ? $now->year : $now->year - 1;
             $endYear = str_pad(($startYear + 1) % 100, 2, '0', STR_PAD_LEFT);
@@ -299,6 +305,13 @@ class JobCardController extends Controller
             }
 
             $input['job_card_no'] = $prefix . str_pad($nextNo, 2, '0', STR_PAD_LEFT);
+        } else {
+            // For updates, we might still want to update actual_pieces if no_of_pieces changed
+            // and it hasn't actually started production (though this is debatable)
+            $existing = JobCard::find($input['id']);
+            if($existing && $existing->no_of_pieces != ($input['no_of_pieces'] ?? 0)) {
+                $input['actual_pieces'] = $input['no_of_pieces'];
+            }
         }
 
         if($request->hasFile('file_upload')){
@@ -323,7 +336,7 @@ class JobCardController extends Controller
             $oldJobCard = JobCard::find($input['id']);
         }
         
-        $jobCard = JobCard::updateOrCreate(['id' => $input['id']], $input);
+        $jobCard = JobCard::updateOrCreate(['id' => ($input['id'] > 0 ? $input['id'] : null)], $input);
 
         // If it was an update, track and log changes
         if($isUpdate && $oldJobCard){
@@ -339,6 +352,13 @@ class JobCardController extends Controller
                 'cylinder_given_id' => 'Cylinder Given To',
                 'sale_executive_id' => 'Sale Executive',
                 'customer_agent_id' => 'Customer/Agent',
+                'bag_type' => 'Bag Type',
+                'width' => 'Width',
+                'length' => 'Height (Length)',
+                'gsm' => 'GSM',
+                'estimate_weight_pcs' => 'Gm/Pc',
+                'total_weight_kg' => 'Total Kg',
+                'remarks' => 'Additional Note',
             ];
 
             foreach($trackFields as $field => $label){
@@ -349,20 +369,20 @@ class JobCardController extends Controller
                     if(str_contains($field, '_id')){
                         // Try to get names for IDs if possible
                         if($field == 'bopp_id'){
-                            $oldVal = Bopp::find($oldVal)->name ?? $oldVal;
-                            $newVal = Bopp::find($newVal)->name ?? $newVal;
+                            $oldVal = ($oldVal && ($m = Bopp::find($oldVal))) ? $m->name : $oldVal;
+                            $newVal = ($newVal && ($m = Bopp::find($newVal))) ? $m->name : $newVal;
                         } elseif($field == 'fabric_id'){
-                            $oldVal = Fabric::find($oldVal)->name ?? $oldVal;
-                            $newVal = Fabric::find($newVal)->name ?? $newVal;
+                            $oldVal = ($oldVal && ($m = Fabric::find($oldVal))) ? $m->name : $oldVal;
+                            $newVal = ($newVal && ($m = Fabric::find($newVal))) ? $m->name : $newVal;
                         } elseif($field == 'cylinder_given_id'){
-                            $oldVal = CylinderAgent::find($oldVal)->name ?? $oldVal;
-                            $newVal = CylinderAgent::find($newVal)->name ?? $newVal;
+                            $oldVal = ($oldVal && ($m = CylinderAgent::find($oldVal))) ? $m->name : $oldVal;
+                            $newVal = ($newVal && ($m = CylinderAgent::find($newVal))) ? $m->name : $newVal;
                         } elseif($field == 'sale_executive_id' || $field == 'user_id'){
-                            $oldVal = User::find($oldVal)->name ?? $oldVal;
-                            $newVal = User::find($newVal)->name ?? $newVal;
+                            $oldVal = ($oldVal && ($m = User::find($oldVal))) ? $m->name : $oldVal;
+                            $newVal = ($newVal && ($m = User::find($newVal))) ? $m->name : $newVal;
                         } elseif($field == 'customer_agent_id'){
-                            $oldVal = AgentCustomer::find($oldVal)->name ?? $oldVal;
-                            $newVal = AgentCustomer::find($newVal)->name ?? $newVal;
+                            $oldVal = ($oldVal && ($m = AgentCustomer::find($oldVal))) ? $m->name : $oldVal;
+                            $newVal = ($newVal && ($m = AgentCustomer::find($newVal))) ? $m->name : $newVal;
                         }
                     }
                     $changes[] = "$label: '$oldVal' -> '$newVal'";
@@ -406,28 +426,45 @@ class JobCardController extends Controller
        else{
         CylinderJob::where('job_card_id', $jobCard->id)->delete();
        }
-       if($jobCard){
-        $job_card_process = JobCardProcess::where('job_card_id', $jobCard->id)->where('process_remarks','New Job Card Created')->first();
-        if(!$job_card_process){
-            $job_card_process = new JobCardProcess();
-            $job_card_process->from_where = ucfirst($jobCard->job_type).' Order';
-            $job_card_process->user_id = auth()->user()->id;
-            $job_card_process->job_card_id = $jobCard->id;
-            $job_card_process->date = now();
-            $job_card_process->process_start_date = now();
-            $job_card_process->process_remarks = 'New Job Card Created';
-            $job_card_process->status = 1;
+        if($jobCard){
+            // Save to ExecutiveTargetRecord
+            if ($jobCard->bag_type && $jobCard->total_weight_kg > 0) {
+                \App\Models\ExecutiveTargetRecord::updateOrCreate(
+                    ['job_card_id' => $jobCard->id],
+                    [
+                        'executive_id' => $jobCard->sale_executive_id,
+                        'date' => $jobCard->job_card_date,
+                        'bag_type' => $jobCard->bag_type,
+                        'width' => $jobCard->width,
+                        'length' => $jobCard->length,
+                        'guzzete' => $jobCard->guzzete,
+                        'gsm' => $jobCard->gsm,
+                        'per_pcs_weight' => $jobCard->estimate_weight_pcs,
+                        'total_pcs' => $jobCard->no_of_pieces,
+                        'total_weight' => $jobCard->total_weight_kg
+                    ]
+                );
+            }
+
+            $job_card_process = JobCardProcess::where('job_card_id', $jobCard->id)->where('process_remarks','New Job Card Created')->first();
+            if(!$job_card_process){
+                $job_card_process = new JobCardProcess();
+                $job_card_process->from_where = ucfirst($jobCard->job_type).' Order';
+                $job_card_process->user_id = auth()->user()->id;
+                $job_card_process->job_card_id = $jobCard->id;
+                $job_card_process->date = now();
+                $job_card_process->process_start_date = now();
+                $job_card_process->process_remarks = 'New Job Card Created';
+                $job_card_process->status = 1;
+            }
+            if($input['job_type'] == 'new'){
+                $job_card_process->process_name = 'Cylinder Come';
+            }
+            else{
+                $job_card_process->process_name = 'Order List';
+            }
+            $job_card_process->save();
         }
-        if($input['job_type'] == 'new'){
-            $job_card_process->process_name = 'Cylinder Come';
-        }
-        else{
-            $job_card_process->process_name = 'Order List';
-        }
-       
-       
-        $job_card_process->save();
-       }
        $data = [
         'result' => 1,
         'message' => 'Job Card Created Successfully',
@@ -512,6 +549,9 @@ class JobCardController extends Controller
         
         if($request->process == 'Account Pending'){
             $next_process = 'Completed';
+            if ($request->mode == 'remarks') {
+                return view('admin.job_card.closure_remarks_modal', compact('job_card', 'next_process'));
+            }
             return view('admin.job_card.billing_modal', compact('job_card', 'next_process'));
         }
         
@@ -651,10 +691,14 @@ class JobCardController extends Controller
                 $packing_slip->packing_date = $request->date;
                 $packing_slip->remarks = $request->remarks;
                 $packing_slip->status = 1;
-                $packing_slip->save();
+                
+                // Save without events first to get ID for slip number without creating a 'created' log
+                \App\Models\PackingSlip::withoutEvents(function() use ($packing_slip) {
+                    $packing_slip->save();
+                });
 
                 $packing_slip->packing_slip_no = 'PS-' . $packing_slip->id;
-                $packing_slip->save();
+                // Second save will trigger the log with all data and log_context
                 
                 foreach($request->get('packing_slip',[]) as $o => $obs){
                     $obs['packing_slip_id'] = $packing_slip->id;
@@ -671,7 +715,24 @@ class JobCardController extends Controller
                 PackingDetail::where('packing_slip_id',$packing_slip->id)->where('job_card_id',$job_card->id)->whereNotIn('id',$obsIds)->delete();
             }
             $job_card->job_card_process = 'Dispatch Material';
+            
+            // POPULATE LOG CONTEXT FOR PACKING SLIP
+            $weights = [];
+            foreach($request->get('packing_slip', []) as $ps) {
+                if(!empty($ps['weight'])) $weights[] = $ps['weight'];
+            }
+            $packing_slip->log_context = [
+                'job_card_no' => $job_card->job_card_no,
+                'job_name' => $job_card->name_of_job,
+                'weight_list' => $weights,
+                'total_weight' => $request->total_weight,
+                'total_bags' => $request->total_bags,
+                'creator' => auth()->user()->name,
+                'date' => $request->date
+            ];
+            
             $job_card->save();
+            $packing_slip->save(); // This save will trigger the activity log with context
 
             // SECURITY: Close any active production/dispatch process when adding a packing slip
             JobCardProcess::where('job_card_id', $job_card->id)->where('status', 1)->update([
@@ -770,7 +831,7 @@ class JobCardController extends Controller
                 $job_card->status = 'Progress';
             }
             
-            $job_card->save();
+            // Removed redundant save here
 
             // First find and update the EXACT process being moved
             $old_job_process = JobCardProcess::where('job_card_id', $job_card->id)
@@ -802,7 +863,6 @@ class JobCardController extends Controller
                     $old_job_process->blockage_time = $request->blockage_time;
 
                     $job_card->actual_pieces = $request->estimate_production;
-                    $job_card->save();
                 }
                 if($request->job_card_process == 'Schedule For Lamination' || ($job_card->job_type == 'Common' && $request->job_card_process == 'Printed Bopp List')){
                     $old_job_process->from = 'Lamination';
@@ -810,7 +870,6 @@ class JobCardController extends Controller
                     $old_job_process->shift_time = $request->shift_time;
                     $old_job_process->blockage_reason_id = $request->blockage_reason_id;
                     $old_job_process->blockage_time = $request->blockage_time;
-                    $job_card->save();
                 }
                 if($request->job_card_process == 'Schedule For Box / Cutting' || ($job_card->job_type == 'Common' && $request->job_card_process == 'Laminated Rolls')){
                     $old_job_process->from = $job_card->order_send_for;
@@ -824,8 +883,22 @@ class JobCardController extends Controller
                     $old_job_process->blockage_time = $request->blockage_time;
 
                     $job_card->actual_pieces = $request->estimate_production;
-                    $job_card->save();
                 }
+                
+                // POPULATE LOG CONTEXT FOR ACTIVITY LOG
+                if($request->machine_id) {
+                    $m = \App\Models\Machine::find($request->machine_id);
+                    $job_card->log_context['machine'] = $m->name ?? 'N/A';
+                }
+                if($request->shift_time) $job_card->log_context['shift'] = $request->shift_time;
+                if($request->estimate_production) $job_card->log_context['production'] = $request->estimate_production;
+                if($request->wastage) $job_card->log_context['wastage'] = $request->wastage;
+                if($request->blockage_reason_id) {
+                    $br = \App\Models\BlockageReason::find($request->blockage_reason_id);
+                    $job_card->log_context['blockage'] = $br->name ?? 'N/A';
+                }
+                if($request->working_hours) $job_card->log_context['hours'] = $request->working_hours;
+
                 $old_job_process->save();
             }
 
@@ -851,91 +924,159 @@ class JobCardController extends Controller
              
             if ($request->next_process == 'Completed') {
                 if ($request->job_card_process == 'Account Pending') {
-                    $job_card->billing_date = $request->billing_date;
-                    $job_card->billing_invoice_no = $request->billing_invoice_no;
+                    // ONLY create Bill and Ledger if Invoice No is provided
+                    if ($request->billing_invoice_no) {
+                        $job_card->billing_date = $request->billing_date;
+                        $job_card->billing_invoice_no = $request->billing_invoice_no;
 
-                    // Create Bill
-                    $bill = new \App\Models\Bill();
-                    $bill->bill_no = $request->billing_invoice_no;
-                    $bill->bill_date = $request->billing_date ?? date('Y-m-d');
-                    $bill->customer_id = $job_card->customer_agent_id;
-                    $bill->job_card_id = $job_card->id;
-                    $bill->remarks = $request->remarks;
-                    $bill->created_by = auth()->id();
-                    $bill->status = 1;
-                    $bill->save();
+                        // CONSOLIDATED LOG DATA
+                        $allBillItems = [];
+                        
+                        // Create Bill Silently
+                        $bill = new \App\Models\Bill();
+                        $bill->bill_no = $request->billing_invoice_no;
+                        $bill->bill_date = $request->billing_date ?? date('Y-m-d');
+                        $bill->due_date = $request->due_days ? \Carbon\Carbon::parse($bill->bill_date)->addDays($request->due_days)->setTime(12, 0, 0) : null;
+                        $bill->customer_id = $job_card->customer_agent_id;
+                        $bill->job_card_id = $job_card->id;
+                        $bill->remarks = $request->remarks;
+                        $bill->created_by = auth()->id();
+                        $bill->status = 1;
+                        \App\Models\Bill::withoutEvents(fn() => $bill->save());
 
-                    $total_amount = 0;
-                    $total_gst = 0;
-                    $grand_total = 0;
+                        $total_amount = 0;
+                        $total_gst = 0;
+                        $grand_total = 0;
 
-                    if ($request->has('items')) {
-                        foreach ($request->items as $item) {
-                            if (!empty($item['description']) && ($item['qty'] > 0 || $item['amount'] > 0)) {
-                                $qty = floatval($item['qty'] ?? 0);
-                                $rate = floatval($item['rate'] ?? 0);
-                                $gst_perc = floatval($item['gst_percent'] ?? 0);
-                                
-                                $amount = round($qty * $rate, 2);
-                                $gst_amount = round($amount * ($gst_perc / 100), 2);
-                                $row_total = $amount + $gst_amount;
+                        if ($request->has('items')) {
+                            foreach ($request->items as $item) {
+                                if (!empty($item['description']) && ($item['qty'] > 0 || $item['amount'] > 0)) {
+                                    $qty = floatval($item['qty'] ?? 0);
+                                    $rate = floatval($item['rate'] ?? 0);
+                                    $gst_perc = floatval($item['gst_percent'] ?? 0);
+                                    
+                                    $amount = round($qty * $rate, 2);
+                                    $gst_amount = round($amount * ($gst_perc / 100), 2);
+                                    $row_total = $amount + $gst_amount;
 
-                                \App\Models\BillItem::create([
-                                    'bill_id' => $bill->id,
-                                    'description' => $item['description'],
-                                    'qty' => $qty,
-                                    'unit' => $item['unit'] ?? 'Kgs',
-                                    'rate' => $rate,
-                                    'amount' => $amount,
-                                    'gst_percent' => $gst_perc,
-                                    'gst_amount' => $gst_amount,
-                                    'total_amount' => $row_total
-                                ]);
+                                    \App\Models\BillItem::withoutEvents(fn() => \App\Models\BillItem::create([
+                                        'bill_id' => $bill->id,
+                                        'description' => $item['description'],
+                                        'qty' => $qty,
+                                        'unit' => $item['unit'] ?? 'Kgs',
+                                        'rate' => $rate,
+                                        'amount' => $amount,
+                                        'gst_percent' => $gst_perc,
+                                        'gst_amount' => $gst_amount,
+                                        'total_amount' => $row_total
+                                    ]));
 
-                                $total_amount += $amount;
-                                $total_gst += $gst_amount;
-                                $grand_total += $row_total;
+                                    $allBillItems[] = [
+                                        'desc' => $item['description'],
+                                        'qty' => $qty,
+                                        'unit' => $item['unit'] ?? 'Kgs',
+                                        'rate' => $rate,
+                                        'gst_perc' => $gst_perc,
+                                        'total' => $row_total
+                                    ];
+
+                                    $total_amount += $amount;
+                                    $total_gst += $gst_amount;
+                                    $grand_total += $row_total;
+                                }
                             }
                         }
+
+                        // Update Bill Totals Silently
+                        $bill->total_amount = $total_amount;
+                        $bill->taxable_amount = $total_amount;
+                        $bill->igst_amount = $total_gst;
+                        $bill->grand_total = $grand_total;
+                        \App\Models\Bill::withoutEvents(fn() => $bill->save());
+                        
+                        SendBillWhatsAppJob::dispatch($bill->id);
+
+                        // CREATE CUSTOMER LEDGER ENTRY Silently
+                        $ledgerData = [
+                            'customer_id' => $job_card->customer_agent_id,
+                            'job_card_id' => $job_card->id,
+                            'bill_id' => $bill->id,
+                            'transaction_date' => $request->billing_date ?? date('Y-m-d'),
+                            'amount' => $total_amount,
+                            'gst' => $total_gst,
+                            'total_amount' => $grand_total,
+                            'grand_total_amount' => $grand_total,
+                            'dr_cr' => 'Dr',
+                            'remarks' => "Billed: Job #{$job_card->id} - {$job_card->name_of_job}",
+                            'software_remarks' => "Bill No: {$request->billing_invoice_no} | Grand Total: {$grand_total}",
+                            'user_id' => \Illuminate\Support\Facades\Auth::id()
+                        ];
+                        \App\Models\CustomerLedger::withoutEvents(fn() => \App\Models\CustomerLedger::create($ledgerData));
+
+                        // CRAFT ONE UNIFIED LOG FOR JOB CARD COMPLETED
+                        activity('JobCard')
+                            ->performedOn($job_card)
+                            ->causedBy(auth()->user())
+                            ->withProperties([
+                                'context' => [
+                                    'type' => 'job_completed',
+                                    'job_no' => $job_card->id,
+                                    'job_name' => $job_card->name_of_job,
+                                    'bill_no' => $bill->bill_no,
+                                    'bill_id' => $bill->id,
+                                    'bill_date' => $bill->bill_date,
+                                    'due_date' => $bill->due_date ? $bill->due_date->format('Y-m-d') : null,
+                                    'bill_items' => $allBillItems,
+                                    'ledger' => $ledgerData,
+                                    'grand_total' => $grand_total
+                                ]
+                            ])
+                            ->log("Job card NO: {$job_card->id} Completed with Bill: {$bill->bill_no}");
+                    } else {
+                        // NO BILL: Just log completion with remarks
+                        activity('JobCard')
+                            ->performedOn($job_card)
+                            ->causedBy(auth()->user())
+                            ->withProperties([
+                                'context' => [
+                                    'type' => 'job_completed_without_bill',
+                                    'job_no' => $job_card->id,
+                                    'job_name' => $job_card->name_of_job,
+                                    'remarks' => $request->remarks
+                                ]
+                            ])
+                            ->log("Job card NO: {$job_card->id} Completed without Bill. Remarks: " . $request->remarks);
                     }
-
-                    // Update Bill Totals
-                    $bill->total_amount = $total_amount;
-                    $bill->taxable_amount = $total_amount;
-                    // Simplified GST split, we can just store the total gst as IGST or split CGST/SGST if same state, but normally we just need the total
-                    $bill->igst_amount = $total_gst;
-                    $bill->grand_total = $grand_total;
-                    $bill->save();
-
-                    // CREATE CUSTOMER LEDGER ENTRY
-                    \App\Models\CustomerLedger::create([
-                        'customer_id' => $job_card->customer_agent_id,
-                        'job_card_id' => $job_card->id,
-                        'transaction_date' => $request->billing_date ?? date('Y-m-d'),
-                        
-                        'amount' => $total_amount,
-                        'gst' => $total_gst,
-                        'total_amount' => $grand_total,
-                        
-                        'extra_charge_amount' => 0,
-                        'extra_charge_gst' => 0, 
-                        'extra_total_amount' => 0,
-                        
-                        'grand_total_amount' => $grand_total,
-                        'dr_cr' => 'Dr',
-                        'remarks' => "Billed: Job #{$job_card->id} - {$job_card->name_of_job}",
-                        'software_remarks' => "Bill No: {$request->billing_invoice_no} | Grand Total: {$grand_total}",
-                        'user_id' => \Illuminate\Support\Facades\Auth::id()
-                    ]);
                 }
+                
+                // Finalize Job Card Silently
                 $job_card->status = 'Completed';
                 $job_card->complete_date = now();
                 $job_card->complete_by_id = auth()->user()->id;
-                $job_card->save();
+                \App\Models\JobCard::withoutEvents(fn() => $job_card->save());
                 
-                // Cascading completion for parents
                 $this->markParentCompletedIfEligible($job_card);
             }
+            
+            // POPULATE LOG CONTEXT FOR ACTIVITY LOG (GLOBAL CATCH)
+            if(empty($job_card->log_context)) {
+                if($request->machine_id) {
+                    $m = \App\Models\Machine::find($request->machine_id);
+                    $job_card->log_context['machine'] = $m->name ?? 'N/A';
+                }
+                if($request->shift_time) $job_card->log_context['shift'] = $request->shift_time;
+                if($request->estimate_production) $job_card->log_context['production'] = $request->estimate_production;
+                if($request->wastage) $job_card->log_context['wastage'] = $request->wastage;
+                if($request->remarks) $job_card->log_context['remarks'] = $request->remarks;
+                if($request->blockage_reason_id) {
+                    $br = \App\Models\BlockageReason::find($request->blockage_reason_id);
+                    $job_card->log_context['blockage'] = $br->name ?? 'N/A';
+                }
+                if($request->working_hours) $job_card->log_context['hours'] = $request->working_hours;
+            }
+
+            // FINAL SINGLE SAVE FOR JOB CARD
+            $job_card->save();
             $process->save();
 
             return response()->json([
@@ -1303,7 +1444,8 @@ class JobCardController extends Controller
 
         $job_cards = $query->with(['customer_agent', 'sale_executive', 'processes', 'packing_slips', 'hold_reason', 'heldByUser'])
                          ->latest()
-                         ->paginate($request->value ?? 50);
+                         ->paginate($request->value ?? 50)
+                         ->withPath(route('job_card.report'));
 
         return view('admin.report.job_card.report_datatable', compact('job_cards', 'total_orders', 'progress_orders', 'completed_orders'));
     }

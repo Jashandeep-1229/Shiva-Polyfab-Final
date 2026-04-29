@@ -2,24 +2,29 @@
     <div class="row mb-4">
         @php
             $process_config = [
-                'Cylinder' => ['color' => 'primary', 'icon' => 'layers', 'limit' => env('CYLINDER_LIMIT')],
-                'Printing' => ['color' => 'warning', 'icon' => 'printer', 'limit' => env('PRINTING_LIMIT')],
-                'Lamination' => ['color' => 'info', 'icon' => 'copy', 'limit' => env('LAMINATION_LIMIT')],
-                'Cutting' => ['color' => 'danger', 'icon' => 'scissors', 'limit' => env('CUTTING_LIMIT')]
+                'Cylinder' => ['color' => 'primary', 'icon' => 'layers', 'limit' => env('CYLINDER_LIMIT'), 'label' => 'CYLINDER'],
+                'Printing' => ['color' => 'warning', 'icon' => 'printer', 'limit' => env('PRINTING_LIMIT'), 'label' => 'PRINTING'],
+                'Lamination' => ['color' => 'info', 'icon' => 'copy', 'limit' => env('LAMINATION_LIMIT'), 'label' => 'LAMINATION'],
+                'Cutting' => ['color' => 'danger', 'icon' => 'scissors', 'limit' => env('CUTTING_LIMIT'), 'label' => 'BOX / CUTTING']
             ];
         @endphp
 
         @foreach($process_config as $name => $conf)
-            @php $count = $late_jobs['by_process'][$name] ?? 0; @endphp
-            @if($count > 0)
+            @php 
+                $count = $late_jobs['by_process'][$name] ?? 0; 
+                $total_count = $late_jobs['total_by_process'][$name] ?? 0;
+            @endphp
+            @if($total_count > 0)
             <div class="col-xl-3 col-md-4 col-sm-6 mb-3">
                 <div class="card border-0 shadow-sm h-100 pointer overflow-hidden" onclick="showLateDetail('{{ $name }}')" 
                      style="border-radius: 12px; border-left: 5px solid var(--bs-{{ $conf['color'] }}) !important;">
                     <div class="card-body p-4 position-relative">
                         <div class="d-flex align-items-center justify-content-between mb-3">
                             <div>
-                                <h6 class="text-muted fw-bold mb-0" style="font-size: 0.8rem; letter-spacing: 0.5px;">{{ strtoupper($name) }} LATE</h6>
-                                <h2 class="mb-0 fw-900 mt-1 text-{{ $conf['color'] }}">{{ $count }}</h2>
+                                <h6 class="text-muted fw-bold mb-0" style="font-size: 0.8rem; letter-spacing: 0.5px;">{{ $conf['label'] }} LATE</h6>
+                                <h2 class="mb-0 fw-900 mt-1 text-{{ $conf['color'] }}">
+                                    {{ $count }} <span class="text-muted fw-normal" style="font-size: 1rem;">/ {{ $total_count }}</span>
+                                </h2>
                             </div>
                             <div class="bg-light-{{ $conf['color'] }} rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
                                 <i data-feather="{{ $conf['icon'] }}" class="text-{{ $conf['color'] }}"></i>

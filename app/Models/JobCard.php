@@ -6,10 +6,23 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Traits\AutoLogsActivity;
+
 class JobCard extends Model
 {
-    use HasFactory;
-    use SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
+
+    public $log_context = [];
+
+    public function tapActivity(\Spatie\Activitylog\Models\Activity $activity, string $eventName)
+    {
+        $activity->description = "{$this->name_of_job} ({$this->job_card_no})";
+        if(!empty($this->log_context)) {
+            $properties = $activity->properties->toArray();
+            $properties['context'] = $this->log_context;
+            $activity->properties = collect($properties);
+        }
+    }
     protected $fillable = [
         'user_id',
         'job_type',
@@ -61,6 +74,13 @@ class JobCard extends Model
         'hold_notes',
         'held_at',
         'held_by_id',
+        'bag_type',
+        'width',
+        'length',
+        'guzzete',
+        'gsm',
+        'estimate_weight_pcs',
+        'total_weight_kg',
     ];
 
     protected $casts = [

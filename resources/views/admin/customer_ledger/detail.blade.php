@@ -34,6 +34,18 @@
         color: #64748b;
         white-space: nowrap;
     }
+    .btn-success i, 
+    .btn-success:hover i,
+    .btn-success:focus i,
+    .btn-success:active i,
+    table.table tr:hover .btn-success i,
+    table.table .btn-success:hover i {
+        color: #ffffff !important;
+        fill: #ffffff !important;
+    }
+    .btn-success .fa-check {
+        color: #28a745 !important;
+    }
 </style>
 @endsection
 
@@ -57,8 +69,19 @@
                                 <button type="button" class="btn btn-dark px-4 shadow-sm fw-bold" onclick="exportIndividualPDF()">
                                     <i class="fa fa-file-pdf-o me-2"></i> VIEW PDF SUMMARY
                                 </button>
-                                <button type="button" class="btn btn-success px-4 shadow-sm fw-bold" disabled title="Develop Later">
-                                    <i class="fa fa-whatsapp me-2"></i> SEND TO WHATSAPP
+                                @php
+                                    $lastSent = \Illuminate\Support\Facades\Cache::get('ledger_whatsapp_sent_' . $customer->id);
+                                    $isRecentlySent = $lastSent ? true : false;
+                                @endphp
+                                <button type="button" 
+                                    class="btn {{ $isRecentlySent ? 'btn-success' : 'btn-outline-success' }} px-4 shadow-sm fw-bold border-2 d-flex align-items-center gap-2" 
+                                    onclick="sendWhatsAppSummary()" 
+                                    title="{{ $isRecentlySent ? 'Last sent: ' . \Carbon\Carbon::parse($lastSent)->diffForHumans() : 'Send to WhatsApp' }}">
+                                    <i class="fa fa-whatsapp {{ $isRecentlySent ? 'text-white' : 'text-success' }}"></i>
+                                    <span>{{ $isRecentlySent ? 'WHATSAPP SENT' : 'SEND TO WHATSAPP' }}</span>
+                                    @if($isRecentlySent)
+                                        <i class="fa fa-check-circle-o fa-lg ms-1"></i>
+                                    @endif
                                 </button>
                                 <a href="{{ route('customer_ledger.index') }}" class="btn btn-outline-secondary px-4 shadow-sm fw-bold">
                                     <i class="fa fa-arrow-left me-2"></i> BACK TO SUMMARY
@@ -706,6 +729,73 @@
                 $('#ajax_html2').html(data);
                 if($('#account-tab').length) {
                     $('#account-tab').tab('show');
+                }
+            });
+        }
+        function sendWhatsAppSummary() {
+            swal({
+                title: "Are you sure?",
+                text: "Send the current ledger summary and PDF to {{ str_replace("'", "\'", $customer->name) }} via WhatsApp?",
+                icon: "info",
+                buttons: true,
+                dangerMode: false,
+            })
+            .then((confirm) => {
+                if (confirm) {
+                    $.notify({ title:'Processing', message:'Generating PDF and sending WhatsApp...' }, { type:'info' });
+                    $.ajax({
+                        url: '{{ route("customer_ledger.whatsapp_summary", $customer->id) }}',
+                        type: 'GET',
+                        success: function(data) {
+                            if(data.result == 1) {
+                                $.notify({ title:'Success', message:data.message }, { type:'success' });
+                                setTimeout(() => { location.reload(); }, 1500);
+                            } else {
+                                $.notify({ title:'Error', message:data.message }, { type:'danger' });
+                            }
+                        }
+                    });
+                }
+            });
+        }
+        function sendWhatsAppBill(btn, id) {
+            swal({
+                title: "Are you sure?",
+                text: "Send this bill notification to the customer via WhatsApp?",
+                icon: "info",
+                buttons: true,
+                dangerMode: false,
+            })
+            .then((confirm) => {
+                if (confirm) {
+                    var $btn = $(btn);
+                    var originalHtml = $btn.html();
+                    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+                    
+                    $.notify({ title:'Processing', message:'Sending WhatsApp notification...' }, { type:'info' });
+                    $.ajax({
+                        url: '{{ url("admin/bills/whatsapp") }}/' + id,
+                        type: 'GET',
+                        success: function(data) {
+                            if(data.result == 1) {
+                                $.notify({ title:'Success', message:data.message }, { type:'success' });
+                                $btn.removeClass('btn-outline-success border-success').addClass('btn-success position-relative');
+                                $btn.html('<i class="fa fa-whatsapp text-white" style="color: white !important;"></i>' +
+                                          '<span class="position-absolute top-0 start-100 translate-middle badge rounded-circle bg-white border border-success p-0" style="width: 14px; height: 14px; margin-top: 2px; margin-left: -2px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">' +
+                                          '<i class="fa fa-check text-success" style="font-size: 8px; color: #28a745 !important;"></i>' +
+                                          '</span>');
+                                $btn.attr('title', 'Sent Just Now');
+                                $btn.prop('disabled', false);
+                            } else {
+                                $.notify({ title:'Error', message:data.message }, { type:'danger' });
+                                $btn.html(originalHtml).prop('disabled', false);
+                            }
+                        },
+                        error: function() {
+                            $.notify({ title:'Error', message:'Communication Error' }, { type:'danger' });
+                            $btn.html(originalHtml).prop('disabled', false);
+                        }
+                    });
                 }
             });
         }

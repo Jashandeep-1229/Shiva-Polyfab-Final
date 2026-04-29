@@ -82,9 +82,9 @@
                             @foreach($design->design_mockups as $image)
                             <div class="col-md-6 mb-3">
                                 <div class="p-2 border rounded bg-white box-shadow-sm h-100 d-flex flex-column">
-                                    <img src="{{ asset($image) }}" class="img-fluid rounded mb-2" style="max-height: 400px; object-fit: contain;">
+                                    <img src="{{ str_contains($image, 'http') ? $image : asset($image) }}" class="img-fluid rounded mb-2" style="max-height: 400px; object-fit: contain;">
                                     <div class="mt-auto d-flex justify-content-between">
-                                        <a href="{{ asset($image) }}" target="_blank" class="btn btn-xs btn-outline-primary"><i class="fa fa-search-plus"></i> Zoom</a>
+                                        <a href="{{ str_contains($image, 'http') ? $image : asset($image) }}" target="_blank" class="btn btn-xs btn-outline-primary"><i class="fa fa-search-plus"></i> Zoom</a>
                                     </div>
                                 </div>
                             </div>

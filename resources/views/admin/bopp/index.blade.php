@@ -19,18 +19,10 @@
                     <form action="{{route('bopp.store')}}" method="POST" id="" class="modal-content" enctype="multipart/form-data">
                         @csrf
                         <div class="card-body row">
-                            <div class="col-md-3 mb-3">
+                            <div class="col-md-6 mb-3">
                                 <input type="text" name="name" id="name"   placeholder="Name" oninput="this.value = this.value.toUpperCase()" class="form-control form-control-sm" required>
                             </div>
-                             <div class="col-md-3">
-                                <input type="number" step="any" name="alert_min_stock" id="alert_min_stock"   placeholder="Alert Min Stock"  class="form-control form-control-sm">
-                            </div>
-                            <div class="col-md-3">
-                                <input type="number" step="any" name="alert_max_stock" id="alert_max_stock"   placeholder="Alert Max Stock"  class="form-control form-control-sm">
-                            </div>
-                             <div class="col-md-2 ">
-                                <input type="number" step="any" name="order_qty" id="order_qty"   placeholder="Minimum Qty To Make Order When Stock Alert"  class="form-control form-control-sm">
-                            </div>
+                           
                            
                             <div class="col-md-1">
                                <button type="submit" id="add_data" class="btn btn-primary btn-sm w-50" >+</button>

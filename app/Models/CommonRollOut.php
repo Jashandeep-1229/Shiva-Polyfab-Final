@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\AutoLogsActivity;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CommonRollOut extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
 
     protected $fillable = [
         'job_card_id',

@@ -82,13 +82,24 @@
                     </td>
                     <td class="text-end">
                         <div class="d-flex justify-content-end gap-1">
-                            @if($row->bill_id)
-                                <button type="button" onclick="window.open('{{ route('bill.pdf', $row->bill_id) }}', '_blank')" class="btn btn-dark btn-xs px-2 shadow-sm" title="View Bill PDF">
+                            @if($row->bill_id || ($row->job_card && $row->job_card->bill))
+                                @php
+                                    $bill_id = $row->bill_id ?: $row->job_card->bill->id;
+                                    $lastSentBill = \Illuminate\Support\Facades\Cache::get('bill_whatsapp_sent_' . $bill_id);
+                                    $isSentBill = $lastSentBill ? true : false;
+                                @endphp
+                                <button type="button" onclick="window.open('{{ route('bill.pdf', $bill_id) }}', '_blank')" class="btn btn-dark btn-xs px-2 shadow-sm" title="View Bill PDF">
                                     <i class="fa fa-file-pdf-o"></i>
                                 </button>
-                            @elseif($row->job_card && $row->job_card->bill)
-                                <button type="button" onclick="window.open('{{ route('bill.pdf', $row->job_card->bill->id) }}', '_blank')" class="btn btn-dark btn-xs px-2 shadow-sm" title="View Bill PDF">
-                                    <i class="fa fa-file-pdf-o"></i>
+                                <button type="button" onclick="sendWhatsAppBill(this, {{ $bill_id }})" 
+                                    class="btn {{ $isSentBill ? 'btn-success' : 'btn-outline-success border-success' }} btn-xs px-2 shadow-sm position-relative" 
+                                    title="{{ $isSentBill ? 'Sent: '.\Carbon\Carbon::parse($lastSentBill)->diffForHumans() : 'Send WhatsApp Bill' }}">
+                                    <i class="fa fa-whatsapp {{ $isSentBill ? 'text-white' : 'text-success' }}" style="{{ $isSentBill ? 'color: white !important;' : '' }}"></i>
+                                    @if($isSentBill)
+                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-circle bg-white border border-success p-0" style="width: 14px; height: 14px; margin-top: 2px; margin-left: -2px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                            <i class="fa fa-check text-success" style="font-size: 8px; color: #28a745 !important;"></i>
+                                        </span>
+                                    @endif
                                 </button>
                             @endif
 

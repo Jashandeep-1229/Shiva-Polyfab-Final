@@ -27,7 +27,7 @@
             </div>
             <div class="col-md-2 form-group mb-3">
                 <h6>Working Hours</h6>
-                <input type="text" name="working_hours" id="working_hours"  class="form-control form-control-sm" value="" required>
+                <input type="number" step="any" name="working_hours" id="working_hours"  class="form-control form-control-sm" value="" required>
             </div>
              <div class="col-md-2 form-group mb-3">
                 <h6>Day/Night</h6>

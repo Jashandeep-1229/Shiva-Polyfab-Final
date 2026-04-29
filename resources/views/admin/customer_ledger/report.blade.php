@@ -72,7 +72,7 @@
                                     <option value="30-45">30-45 Days Due</option>
                                     <option value="45+">45+ Days Due</option>
                                     <option value="advance">Show Advance (Credit)</option>
-                                    <option value="7_days_followup">7 Days Followup Pending</option>
+                                    <option value="30_days_inactive">30 Days Inactive (No Activity)</option>
                                     <option value="less_than_1_lakh">Payment Less Than 1 Lakh</option>
                                     <option value="less_than_50k">Payment Less than 50K</option>
                                 </select>

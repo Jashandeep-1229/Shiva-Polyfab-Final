@@ -6,9 +6,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Traits\AutoLogsActivity;
+
 class CylinderJob extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, AutoLogsActivity;
+
+    public function tapActivity(\Spatie\Activitylog\Models\Activity $activity, string $eventName)
+    {
+        $agentName = $this->cylinder_agent ? $this->cylinder_agent->name : 'N/A';
+        $activity->description = "Agent: {$agentName} | Job: {$this->name_of_job}";
+    }
     protected $fillable = [
         'job_card_id',
         'cylinder_agent_id',

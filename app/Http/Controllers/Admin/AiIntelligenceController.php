@@ -56,8 +56,14 @@ class AiIntelligenceController extends Controller
             $fileBase64 = base64_encode(file_get_contents($file->getRealPath()));
         }
 
+        // Fetch Recent History
+        $history = \App\Models\AiChatHistory::where('user_id', auth()->id())
+                        ->where('session_id', $sessionId)
+                        ->orderBy('id', 'asc')
+                        ->get();
+
         $startTime = microtime(true);
-        $response  = $this->aiService->askAi(auth()->user(), $message, $fileBase64, $mimeType);
+        $response  = $this->aiService->askAi(auth()->user(), $message, $fileBase64, $mimeType, $history);
         $ms        = (int) round((microtime(true) - $startTime) * 1000);
         $modelUsed = $this->aiService->lastModelUsed;
 
@@ -108,33 +114,67 @@ class AiIntelligenceController extends Controller
                                     $actionReports[] = "⚠️ Could not find exactly '{$actionData['item_name']}' in {$categoryName} table.";
                                 }
                             }
-                        } elseif (isset($actionData['action']) && $actionData['action'] === 'add_ledger') {
-                            $customer = \App\Models\AgentCustomer::where('party_name', 'like', '%' . $actionData['customer_name'] . '%')->first();
+                        } elseif (isset($actionData['action']) && $actionData['action'] === 'universal_insert') {
+                            $targetModelClass = "\\App\\Models\\" . $actionData['model'];
                             
-                            if ($customer) {
-                                \App\Models\CustomerLedger::create([
-                                    'user_id'            => auth()->id(),
-                                    'customer_id'        => $customer->id,
-                                    'amount'             => $actionData['amount'],
-                                    'total_amount'       => $actionData['amount'],
-                                    'grand_total_amount' => $actionData['amount'],
-                                    'dr_cr'              => $actionData['dr_cr'],
-                                    'transaction_date'   => $actionData['date'] ?? date('Y-m-d'),
-                                    'remarks'            => $actionData['remarks'] ?? 'Auto-added by AI Agent',
-                                    'software_remarks'   => 'AI Generated'
-                                ]);
+                            if (class_exists($targetModelClass)) {
+                                $dataToInsert = $actionData['data'] ?? [];
+                                $dataToInsert['user_id'] = auth()->id();
+                                $dataToInsert['created_by'] = auth()->id(); // Some tables use created_by
                                 
-                                $type = strtoupper($actionData['dr_cr'] === 'dr' ? 'Debit' : 'Credit');
-                                $actionReports[] = "✅ Successfully added " . $type . " of ₹" . number_format($actionData['amount'], 2) . " to " . $customer->party_name . "!";
+                                // Process Foreign Key Relations Dynamically
+                                if (!empty($actionData['relations'])) {
+                                    foreach ($actionData['relations'] as $foreignKey => $relationInstructions) {
+                                        $relModelClass = "\\App\\Models\\" . $relationInstructions['model'];
+                                        if (class_exists($relModelClass)) {
+                                            $foreignObj = $relModelClass::where($relationInstructions['search_column'], 'like', '%' . $relationInstructions['search_value'] . '%')->first();
+                                            if ($foreignObj) {
+                                                $dataToInsert[$foreignKey] = $foreignObj->id;
+                                            } else {
+                                                $actionReports[] = "⚠️ Could not resolve '{$relationInstructions['search_value']}' in {$relationInstructions['model']}.";
+                                            }
+                                        }
+                                    }
+                                }
+
+                                try {
+                                    $newRecord = $targetModelClass::create($dataToInsert);
+                                    
+                                    // Process Nested Children (e.g. Bill Items)
+                                    if (!empty($actionData['children'])) {
+                                        foreach ($actionData['children'] as $child) {
+                                            $childModelClass = "\\App\\Models\\" . $child['model'];
+                                            if (class_exists($childModelClass) && !empty($child['records'])) {
+                                                foreach ($child['records'] as $record) {
+                                                    $record[$child['foreign_key']] = $newRecord->id;
+                                                    $childModelClass::create($record);
+                                                }
+                                                $actionReports[] = "  ↳ Inserted " . count($child['records']) . " child records into " . $child['model'] . ".";
+                                            }
+                                        }
+                                    }
+
+                                    // Extract Trigger URL if defined
+                                    if (!empty($actionData['trigger_url'])) {
+                                        $triggerUrl = str_replace('ID', $newRecord->id, $actionData['trigger_url']);
+                                    }
+
+                                    $actionReports[] = "✅ Successfully added new record to " . $actionData['model'] . "!";
+                                } catch (\Exception $dbEx) {
+                                    $actionReports[] = "❌ Failed to insert into " . $actionData['model'] . ". Error: " . $dbEx->getMessage();
+                                }
+                                
                             } else {
-                                $actionReports[] = "⚠️ Could not find customer '{$actionData['customer_name']}'.";
+                                $actionReports[] = "⚠️ The Model '{$actionData['model']}' does not exist.";
                             }
                         }
                     }
                     
                     if (count($actionReports) > 0) {
                         // Strip the JSON block from response and add success tags
-                        $response = preg_replace('/```json\s*\[.*?\]\s*```/s', '', $response);
+                        $response = str_replace($jsonStr, '', $response);
+                        $response = str_replace('```json', '', $response);
+                        $response = str_replace('```', '', $response);
                         $response .= "\n\n**Action Results:**\n" . implode("\n", $actionReports);
                     }
                 }
@@ -158,6 +198,7 @@ class AiIntelligenceController extends Controller
             'response'    => $response,
             'model'       => $modelUsed,
             'response_ms' => $ms,
+            'trigger_url' => $triggerUrl ?? null
         ]);
     }
 
@@ -177,6 +218,55 @@ class AiIntelligenceController extends Controller
             ->get();
 
         return response()->json(['history' => $history]);
+    }
+
+    /**
+     * Get Session List for Sidebar
+     */
+    public function getSessionList(Request $request)
+    {
+        $sessions = AiChatHistory::where('user_id', auth()->id())
+            ->select('session_id', DB::raw('MIN(created_at) as started_at'), DB::raw('MAX(created_at) as updated_at'))
+            ->groupBy('session_id')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+            
+        $sessionDetails = [];
+        foreach($sessions as $session) {
+            $firstMessage = AiChatHistory::where('session_id', $session->session_id)
+                ->whereNotNull('user_message')
+                ->where('user_message', '!=', '')
+                ->orderBy('created_at', 'asc')
+                ->first();
+                
+            $title = $firstMessage ? strip_tags($firstMessage->user_message) : 'New Chat';
+            if (strlen($title) > 30) {
+                $title = substr($title, 0, 30) . '...';
+            }
+            
+            $sessionDetails[] = [
+                'session_id' => $session->session_id,
+                'title' => $title,
+                'date' => \Carbon\Carbon::parse($session->updated_at)->format('M d, Y')
+            ];
+        }
+        
+        return response()->json(['sessions' => $sessionDetails]);
+    }
+
+    /**
+     * Load an old Session
+     */
+    public function loadSession(Request $request, $id)
+    {
+        $request->session()->put('ai_session_id', $id);
+        
+        $history = AiChatHistory::where('user_id', auth()->id())
+            ->where('session_id', $id)
+            ->orderBy('id', 'asc')
+            ->get();
+            
+        return response()->json(['status' => 'success', 'history' => $history]);
     }
 
     /**
@@ -293,6 +383,10 @@ class AiIntelligenceController extends Controller
                 $file->move(public_path('uploads/ai_designs'), $filename);
                 $mockups[] = 'uploads/ai_designs/' . $filename;
             }
+        }
+        
+        if ($request->mockup_urls) {
+            $mockups = array_merge($mockups, (array)$request->mockup_urls);
         }
         $input['design_mockups'] = $mockups;
 

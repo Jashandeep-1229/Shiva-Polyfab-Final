@@ -415,6 +415,18 @@ class LedgerFollowupController extends Controller
             $end_date = strtotime($final_complete_date);
             $total_days = round(($end_date - $start_date) / 86400, 1);
 
+            // Important: Save the final remarks as a history record even for closure
+            LedgerFollowupHistory::create([
+                'followup_id' => $followup->id,
+                'user_id' => Auth::id(),
+                'remarks' => $request->remarks,
+                'followup_date_time' => $final_complete_date,
+                'complete_date_time' => $final_complete_date,
+                'complete_by' => Auth::id(),
+                'total_no_of_days' => 0,
+                'status' => 0
+            ]);
+
             $followup->update([
                 'status' => 'Closed',
                 'complete_date' => $final_complete_date,

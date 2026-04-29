@@ -232,7 +232,7 @@ Order Process - {{$process }}
                             "scrollCollapse": false,
                             "autoWidth": false,
                             "columnDefs": [
-                                { "width": "150px", "targets": -1 } // Action column width
+                                { "width": "200px", "targets": -1 } // Action column width
                             ],
                             "drawCallback": function(settings) {
                                 var api = this.api();
@@ -327,7 +327,7 @@ Order Process - {{$process }}
             });
         }
 
-        function next_process(id, process){
+        function next_process(id, process, mode = ''){
             process = process.trim();
             if(process == 'Order List' || process == 'Cylinder Come'){
                 swal({
@@ -340,7 +340,7 @@ Order Process - {{$process }}
                     if (willMove) {
                         var url = "{{route('job_card.next_process',":id")}}";
                         url = url.replace(':id',id);
-                        $.get(url, {process: process}, function(data){
+                        $.get(url, {process: process, mode: mode}, function(data){
                             if(data.result == 1){
                                  update_single_row(id);
                                  $.notify({ title: 'Success', message: data.message }, { type: 'success', });
@@ -353,7 +353,7 @@ Order Process - {{$process }}
 
             var url = "{{route('job_card.next_process',":id")}}";
             url = url.replace(':id',id);
-            $.get(url, {process: process}, function(data){
+            $.get(url, {process: process, mode: mode}, function(data){
                 if(data.result == 1){
                      update_single_row(id);
                      $.notify({ title: 'Success', message: data.message }, { type: 'success', });

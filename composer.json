@@ -16,7 +16,10 @@
         "laravel/sanctum": "^3.0",
         "laravel/tinker": "^2.7",
         "laravel/ui": "^4.2",
-        "maatwebsite/excel": "^3.1"
+        "maatwebsite/excel": "^3.1",
+        "netflie/whatsapp-cloud-api": "^3.1",
+        "pusher/pusher-php-server": "^7.2",
+        "spatie/laravel-activitylog": "^4.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.9.1",

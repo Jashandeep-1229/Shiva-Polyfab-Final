@@ -12,10 +12,17 @@
       </div>
     </form>
     <div class="header-logo-wrapper col-auto p-0">
-      <div class="logo-wrapper"><a href="{{ url('/') }}"><img class="img-fluid" src="{{ asset(env('APP_LOGO_DARK')) }}" alt=""></a></div>
+      <div class="logo-wrapper"><a href="{{ auth()->user()->role_as == 'Admin' ? route('admin.dashboard.overall') : url('/') }}"><img class="img-fluid" src="{{ asset(env('APP_LOGO_DARK')) }}" alt=""></a></div>
       <div class="toggle-sidebar"><i class="status_toggle middle sidebar-toggle" data-feather="align-center"></i></div>
     </div>
     <div class="left-header col-xxl-5 col-xl-6 col-lg-5 col-md-4 col-sm-3 p-0">
+      @if(auth()->user()->role_as == 'Admin')
+      <div class="d-flex align-items-center ms-4">
+        <a href="{{ route('admin.dashboard.overall') }}" class="btn btn-outline-primary btn-sm fw-bold px-3 py-2" style="border-radius: 8px; font-size: 13px;">
+          <i class="fa fa-th-large me-2"></i> Overall Dashboard
+        </a>
+      </div>
+      @endif
       <div class="notification-slider">
         <div class="d-flex h-100"> <img src="{{ asset('assets/images/giftools.gif') }}" alt="gif">
           {{-- <h6 class="mb-0 f-w-400"><span class="font-primary">Don't Miss Out! </span><span class="f-light">Out new update has been release.</span></h6><i class="icon-arrow-top-right f-light"></i> --}}

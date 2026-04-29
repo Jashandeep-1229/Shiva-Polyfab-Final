@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\Jobs\SendBillWhatsAppJob;
 use PDF;
 
 class BillController extends Controller
@@ -93,11 +94,15 @@ class BillController extends Controller
         $bill->customer_id = $request->customer_id;
         $bill->remarks = $request->remarks;
         $bill->created_by = Auth::id();
-        $bill->save();
+        
+        Bill::withoutEvents(function () use ($bill) {
+            $bill->save();
+        });
 
         $total_amount = 0;
         $total_gst = 0;
         $grand_total = 0;
+        $billItems = [];
 
         foreach ($request->items as $item) {
             if (!empty($item['description']) && ($item['qty'] > 0 || $item['amount'] > 0)) {
@@ -109,18 +114,29 @@ class BillController extends Controller
                 $gst_amount = round($amount * ($gst_perc / 100), 2);
                 $row_total = $amount + $gst_amount;
 
-                BillItem::create([
-                    'bill_id' => $bill->id,
+                BillItem::withoutEvents(function () use ($bill, $item, $qty, $rate, $amount, $gst_perc, $gst_amount, $row_total) {
+                    BillItem::create([
+                        'bill_id' => $bill->id,
+                        'description' => $item['description'],
+                        'hsn_code' => $item['hsn_code'] ?? null,
+                        'qty' => $qty,
+                        'unit' => $item['unit'] ?? 'Kgs',
+                        'rate' => $rate,
+                        'amount' => $amount,
+                        'gst_percent' => $gst_perc,
+                        'gst_amount' => $gst_amount,
+                        'total_amount' => $row_total
+                    ]);
+                });
+
+                $billItems[] = [
                     'description' => $item['description'],
-                    'hsn_code' => $item['hsn_code'] ?? null,
                     'qty' => $qty,
                     'unit' => $item['unit'] ?? 'Kgs',
                     'rate' => $rate,
-                    'amount' => $amount,
                     'gst_percent' => $gst_perc,
-                    'gst_amount' => $gst_amount,
                     'total_amount' => $row_total
-                ]);
+                ];
 
                 $total_amount += $amount;
                 $total_gst += $gst_amount;
@@ -132,25 +148,58 @@ class BillController extends Controller
         $bill->taxable_amount = $total_amount;
         $bill->igst_amount = $total_gst;
         $bill->grand_total = $grand_total;
-        $bill->save();
+        
+        Bill::withoutEvents(function () use ($bill) {
+            $bill->save();
+        });
 
-        CustomerLedger::create([
-            'customer_id' => $bill->customer_id,
-            'job_card_id' => $bill->job_card_id,
-            'bill_id' => $bill->id,
-            'transaction_date' => $bill->bill_date,
-            'amount' => $total_amount,
-            'gst' => $total_gst,
-            'total_amount' => $grand_total,
-            'extra_charge_amount' => 0,
-            'extra_charge_gst' => 0, 
-            'extra_total_amount' => 0,
-            'grand_total_amount' => $grand_total,
-            'dr_cr' => 'Dr',
-            'remarks' => "Bill #{$bill->bill_no}",
-            'software_remarks' => "Bill No: {$bill->bill_no} | Grand Total: {$grand_total}",
-            'user_id' => Auth::id()
-        ]);
+        CustomerLedger::withoutEvents(function () use ($bill, $total_amount, $total_gst, $grand_total) {
+            CustomerLedger::create([
+                'customer_id' => $bill->customer_id,
+                'job_card_id' => $bill->job_card_id,
+                'bill_id' => $bill->id,
+                'transaction_date' => $bill->bill_date,
+                'amount' => $total_amount,
+                'gst' => $total_gst,
+                'total_amount' => $grand_total,
+                'extra_charge_amount' => 0,
+                'extra_charge_gst' => 0, 
+                'extra_total_amount' => 0,
+                'grand_total_amount' => $grand_total,
+                'dr_cr' => 'Dr',
+                'remarks' => "Bill #{$bill->bill_no}",
+                'software_remarks' => "Bill No: {$bill->bill_no} | Grand Total: {$grand_total}",
+                'user_id' => Auth::id()
+            ]);
+        });
+
+        // SINGLE CONSOLIDATED LOG
+        $logEntry = activity('Bill')
+            ->performedOn($bill)
+            ->causedBy(Auth::user())
+            ->withProperties([
+                'attributes' => [
+                    'bill_no' => $bill->bill_no,
+                    'grand_total' => $grand_total,
+                    'customer_id' => $bill->customer_id,
+                    'items_count' => count($billItems)
+                ],
+                'context' => [
+                    'type' => 'manual_bill',
+                    'bill_no' => $bill->bill_no,
+                    'bill_date' => $bill->bill_date,
+                    'due_date' => $bill->due_date,
+                    'grand_total' => $grand_total,
+                    'items' => $billItems
+                ]
+            ])
+            ->log("created");
+        
+        $logEntry->event = 'created';
+        $logEntry->save();
+
+        // WhatsApp Notification for Bill
+        SendBillWhatsAppJob::dispatch($bill->id);
 
         return response()->json(['result' => 1, 'message' => 'Bill created successfully', 'url' => route('bill.index')]);
     }
@@ -190,8 +239,22 @@ class BillController extends Controller
         $total_amount = 0;
         $total_gst = 0;
         $grand_total = 0;
+        $billItems = [];
 
-        $bill->items()->delete();
+        $bill->load('items');
+        $oldGrandTotal = $bill->grand_total;
+        $oldItems = $bill->items->map(function($i) {
+            return [
+                'description' => $i->description,
+                'qty' => $i->qty,
+                'unit' => $i->unit,
+                'rate' => $i->rate,
+                'gst_percent' => $i->gst_percent,
+                'total_amount' => $i->total_amount
+            ];
+        })->toArray();
+
+        BillItem::where('bill_id', $bill->id)->delete();
 
         foreach ($request->items as $item) {
             if (!empty($item['description']) && ($item['qty'] > 0 || $item['amount'] > 0)) {
@@ -203,17 +266,28 @@ class BillController extends Controller
                 $gst_amount = round($amount * ($gst_perc / 100), 2);
                 $row_total = $amount + $gst_amount;
 
-                BillItem::create([
-                    'bill_id' => $bill->id,
+                BillItem::withoutEvents(function () use ($bill, $item, $qty, $rate, $amount, $gst_perc, $gst_amount, $row_total) {
+                    BillItem::create([
+                        'bill_id' => $bill->id,
+                        'description' => $item['description'],
+                        'qty' => $qty,
+                        'unit' => $item['unit'] ?? 'Kgs',
+                        'rate' => $rate,
+                        'amount' => $amount,
+                        'gst_percent' => $gst_perc,
+                        'gst_amount' => $gst_amount,
+                        'total_amount' => $row_total
+                    ]);
+                });
+
+                $billItems[] = [
                     'description' => $item['description'],
                     'qty' => $qty,
                     'unit' => $item['unit'] ?? 'Kgs',
                     'rate' => $rate,
-                    'amount' => $amount,
                     'gst_percent' => $gst_perc,
-                    'gst_amount' => $gst_amount,
                     'total_amount' => $row_total
-                ]);
+                ];
 
                 $total_amount += $amount;
                 $total_gst += $gst_amount;
@@ -230,26 +304,58 @@ class BillController extends Controller
         $bill->taxable_amount = $total_amount;
         $bill->igst_amount = $total_gst;
         $bill->grand_total = $grand_total;
-        $bill->save();
+        
+        Bill::withoutEvents(function () use ($bill) {
+            $bill->save();
+        });
 
         // Update ledger logic
-        $ledger = CustomerLedger::where('bill_id', $bill->id)
-                    ->orWhere('remarks', "Manual Bill #{$bill->bill_no}")
-                    ->orWhere('remarks', "Bill #{$bill->bill_no}")
-                    ->first();
+        $ledger = CustomerLedger::where('bill_id', $bill->id)->first();
         if ($ledger) {
-            $ledger->update([
-                'customer_id' => $bill->customer_id,
-                'bill_id' => $bill->id,
-                'transaction_date' => $bill->bill_date,
-                'amount' => $total_amount,
-                'gst' => $total_gst,
-                'total_amount' => $grand_total,
-                'grand_total_amount' => $grand_total,
-                'remarks' => "Bill #{$bill->bill_no}",
-                'software_remarks' => "Bill No: {$bill->bill_no} | Grand Total: {$grand_total}",
-            ]);
+            CustomerLedger::withoutEvents(function () use ($ledger, $bill, $total_amount, $total_gst, $grand_total) {
+                $ledger->update([
+                    'customer_id' => $bill->customer_id,
+                    'bill_id' => $bill->id,
+                    'transaction_date' => $bill->bill_date,
+                    'amount' => $total_amount,
+                    'gst' => $total_gst,
+                    'total_amount' => $grand_total,
+                    'grand_total_amount' => $grand_total,
+                    'remarks' => "Bill #{$bill->bill_no}",
+                    'software_remarks' => "Bill No: {$bill->bill_no} | Grand Total: {$grand_total}",
+                ]);
+            });
         }
+
+        // SINGLE CONSOLIDATED LOG
+        $logEntry = activity('Bill')
+            ->performedOn($bill)
+            ->causedBy(Auth::user())
+            ->withProperties([
+                'old' => [
+                    'bill_no' => $bill->getOriginal('bill_no'),
+                    'grand_total' => $oldGrandTotal,
+                    'items' => $oldItems
+                ],
+                'attributes' => [
+                    'bill_no' => $bill->bill_no,
+                    'grand_total' => $grand_total,
+                    'customer_id' => $bill->customer_id,
+                    'items_count' => count($billItems)
+                ],
+                'context' => [
+                    'type' => 'manual_bill',
+                    'bill_no' => $bill->bill_no,
+                    'grand_total' => $grand_total,
+                    'old_total' => $oldGrandTotal,
+                    'items' => $billItems
+                ]
+            ])
+            ->log("updated");
+        
+        // Force the event column so the badge reflects UPDATED correctly
+        $logEntry->event = 'updated';
+        $logEntry->save();
 
         return response()->json(['result' => 1, 'message' => 'Bill updated successfully', 'url' => route('bill.index')]);
     }
@@ -274,5 +380,23 @@ class BillController extends Controller
             return response()->json(['result' => 1, 'message' => 'Bill deleted successfully']);
         }
         return response()->json(['result' => -1, 'message' => 'Bill not found']);
+    }
+
+    public function sharePdf($id)
+    {
+        $bill = Bill::with(['customer', 'items'])->findOrFail($id);
+        $pdf = PDF::loadView('admin.bill.pdf', compact('bill'));
+        return $pdf->stream('Bill_' . $bill->bill_no . '.pdf');
+    }
+
+    public function send_whatsapp($id)
+    {
+        $bill = Bill::findOrFail($id);
+        SendBillWhatsAppJob::dispatch($bill->id);
+        
+        // Record the send time in cache for 24 hours to show indicator in UI
+        \Illuminate\Support\Facades\Cache::put('bill_whatsapp_sent_' . $bill->id, now(), now()->addHours(24));
+        
+        return response()->json(['result' => 1, 'message' => 'WhatsApp Notification Sent Successfully']);
     }
 }

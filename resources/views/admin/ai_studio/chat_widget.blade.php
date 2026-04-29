@@ -33,22 +33,47 @@
         100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
     }
 
+    /* AI Chat Overlay */
+    #ai-chat-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(4px);
+        z-index: 99998;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+    }
+    #ai-chat-overlay.show {
+        opacity: 1;
+        visibility: visible;
+    }
+
     /* Main Chat Window */
     #ai-chat-window {
         position: fixed;
-        bottom: 110px;
-        right: 30px;
-        width: 400px;
-        height: 600px;
-        max-height: calc(100vh - 140px);
+        top: 0;
+        bottom: 0;
+        right: -500px;
+        width: 100%;
+        max-width: 450px;
+        height: 100vh;
+        max-height: 100vh;
         background: #ffffff;
-        border-radius: 24px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
-        display: none;
+        border-radius: 0;
+        box-shadow: -20px 0 50px rgba(0,0,0,0.15);
+        display: flex;
         flex-direction: column;
-        z-index: 9999;
+        z-index: 99999;
+        transition: right 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #ai-chat-window.show {
+        right: 0;
     }
 
     /* Header */
@@ -148,10 +173,10 @@
 
     /* Bubbles */
     .ai-msg {
-        max-width: 85%;
-        padding: 14px 18px;
-        font-size: 14px;
-        line-height: 1.5;
+        max-width: 90%;
+        padding: 16px 20px;
+        font-size: 14.5px;
+        line-height: 1.6;
         position: relative;
         word-wrap: break-word;
     }
@@ -161,8 +186,9 @@
         color: #334155;
         align-self: flex-start;
         border-radius: 20px 20px 20px 4px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.05);
-        border: 1px solid rgba(0,0,0,0.02);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03), 0 1px 4px rgba(0,0,0,0.05);
+        border: 1px solid rgba(0,0,0,0.04);
+        width: 100%;
     }
     
     .ai-msg-user {
@@ -207,7 +233,6 @@
         box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
 
-    /* Meta Info */
     .msg-meta {
         font-size: 10px;
         color: #94a3b8;
@@ -218,6 +243,23 @@
     }
     .ai-msg-user .msg-meta {
         color: rgba(255,255,255,0.7);
+    }
+    
+    /* History List */
+    .history-item {
+        background: white; 
+        padding: 12px 16px; 
+        border-radius: 12px; 
+        margin-bottom: 12px; 
+        cursor: pointer; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02); 
+        transition: all 0.2s; 
+        border: 1px solid rgba(0,0,0,0.04);
+    }
+    .history-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(0,0,0,0.06);
+        border-color: #cbd5e1;
     }
 
     /* Input Area */
@@ -325,9 +367,9 @@
     }
 </style>
 
-<div id="ai-floating-button" onclick="toggleAiChat()">
-    <i class="fa fa-sparkles"></i>
-</div>
+<!-- <div id="ai-floating-button" onclick="toggleAiChat()">
+    <i class="fa fa-magic"></i>
+</div> -->
 
 <div id="ai-chat-window">
     <div id="ai-chat-header">
@@ -339,6 +381,10 @@
             </div>
         </div>
         <div class="ai-header-actions">
+            <!-- History Button -->
+            <button class="ai-action-btn" onclick="toggleChatHistoryPanel()" title="History">
+                <i class="fa fa-history"></i>
+            </button>
             <!-- New Chat Button -->
             <button class="ai-action-btn" onclick="startNewChat()" title="New Chat">
                 <i class="fa fa-edit"></i>
@@ -346,6 +392,14 @@
             <button class="ai-action-btn" onclick="toggleAiChat()" title="Close">
                 <i class="fa fa-times"></i>
             </button>
+        </div>
+    </div>
+
+    <!-- History Overlay Panel -->
+    <div id="ai-chat-history-panel" style="display:none; position:absolute; top:73px; left:0; width:100%; height:calc(100% - 73px); background:#f8fafc; z-index:20; overflow-y:auto; padding:20px;">
+        <h5 style="margin-top:0; font-weight:700; color:#1e293b; margin-bottom: 16px;">Chat History</h5>
+        <div id="ai-chat-history-list">
+            <!-- History items populate here -->
         </div>
     </div>
 
@@ -367,7 +421,7 @@
                 <i class="fa fa-paperclip"></i>
             </button>
             <span id="ai-file-preview"></span>
-            <input type="text" id="ai-chat-msg-input" placeholder="Message AI... " maxlength="500" onkeypress="if(event.key === 'Enter') sendAiMsg()">
+            <textarea id="ai-chat-msg-input" placeholder="Message AI... " maxlength="500" rows="1" onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendAiMsg(); }"></textarea>
             <button class="ai-send-btn" onclick="sendAiMsg()"><i class="fa fa-paper-plane"></i></button>
         </div>
     </div>
@@ -380,8 +434,22 @@
         const win = document.getElementById('ai-chat-window');
         const btn = document.getElementById('ai-floating-button');
         
-        if (win.style.display === 'none' || win.style.display === '') {
-            win.style.display = 'flex';
+        let overlay = document.getElementById('ai-chat-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'ai-chat-overlay';
+            overlay.onclick = toggleAiChat;
+            document.body.appendChild(overlay);
+        }
+        
+        if (win.classList.contains('show')) {
+            win.classList.remove('show');
+            overlay.classList.remove('show');
+            btn.style.transform = 'scale(1)';
+            btn.style.opacity = '1';
+        } else {
+            win.classList.add('show');
+            overlay.classList.add('show');
             btn.style.transform = 'scale(0.8)';
             btn.style.opacity = '0';
             
@@ -391,10 +459,11 @@
             } else {
                 scrollToBottom();
             }
-        } else {
-            win.style.display = 'none';
-            btn.style.transform = 'scale(1)';
-            btn.style.opacity = '1';
+            
+            setTimeout(() => {
+                const input = document.getElementById('ai-chat-msg-input');
+                if(input) input.focus();
+            }, 300);
         }
     }
 
@@ -411,14 +480,83 @@
             method: "GET",
             success: function(res) {
                 if(res.history && res.history.length > 0) {
-                    // We hide the welcome msg since we have history
-                    document.getElementById('welcome-msg').style.display = 'none';
+                    const welcomeMsg = document.getElementById('welcome-msg');
+                    if (welcomeMsg) welcomeMsg.style.display = 'none';
                     
                     res.history.forEach(function(chat){
                         appendAiMsg('user', chat.user_message, null, null, false);
                         appendAiMsg('bot', chat.ai_response, chat.model_used, chat.response_time_ms, false);
                     });
                     scrollToBottom();
+                }
+            }
+        });
+    }
+
+    function toggleChatHistoryPanel() {
+        const panel = document.getElementById('ai-chat-history-panel');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            loadSessionList();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    function loadSessionList() {
+        const listDiv = document.getElementById('ai-chat-history-list');
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><div class="typing-indicator" style="justify-content:center"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+        
+        $.ajax({
+            url: "{{ route('ai_studio.get_sessions') }}",
+            method: "GET",
+            success: function(res) {
+                if(res.sessions && res.sessions.length > 0) {
+                    listDiv.innerHTML = '';
+                    res.sessions.forEach(function(session) {
+                        listDiv.innerHTML += `
+                            <div class="history-item" onclick="loadSpecificSession('${session.session_id}')">
+                                <div style="font-size:14px; font-weight:600; color:#334155; margin-bottom:4px;">${session.title}</div>
+                                <div style="font-size:11px; color:#94a3b8;"><i class="fa fa-calendar-alt"></i> ${session.date}</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    listDiv.innerHTML = '<div style="text-align:center; color:#94a3b8; font-size:14px; padding:20px;">No history found.</div>';
+                }
+            }
+        });
+    }
+    
+    function loadSpecificSession(sessionId) {
+        document.getElementById('ai-chat-history-panel').style.display = 'none';
+        
+        const msgBox = document.getElementById('ai-chat-messages');
+        msgBox.innerHTML = '<div style="text-align:center; padding:20px;"><div class="typing-indicator" style="justify-content:center"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+        
+        let url = "{{ route('ai_studio.load_session', ':id') }}";
+        url = url.replace(':id', sessionId);
+        
+        $.ajax({
+            url: url,
+            method: "GET",
+            success: function(res) {
+                msgBox.innerHTML = '';
+                if(res.history && res.history.length > 0) {
+                    res.history.forEach(function(chat){
+                        appendAiMsg('user', chat.user_message, null, null, false);
+                        appendAiMsg('bot', chat.ai_response, chat.model_used, chat.response_time_ms, false);
+                    });
+                    scrollToBottom();
+                } else {
+                    msgBox.innerHTML = `
+                        <div class="ai-msg ai-msg-bot animate__animated animate__fadeIn">
+                            <div class="markdown-body">
+                                Session loaded but it's empty. How can I help?
+                            </div>
+                            <span class="msg-meta">System</span>
+                        </div>
+                    `;
                 }
             }
         });
@@ -504,22 +642,33 @@
             success: function(response) {
                 document.getElementById(thinkingId).remove();
                 if(response.status === 'success') {
-                    appendAiMsg('bot', response.response, response.model, response.response_ms);
+                    appendAiMsg('bot', response.response, response.model, response.response_ms, true, true);
+                    
+                    // Trigger popup action if requested by AI
+                    if (response.trigger_url) {
+                        setTimeout(() => { window.open(response.trigger_url, '_blank'); }, 500);
+                    }
                 } else {
                     appendAiMsg('bot', "❌ Something went wrong.");
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
                 document.getElementById(thinkingId).remove();
-                appendAiMsg('bot', "Connection error. Please try again later.");
+                if(xhr.status === 419) {
+                    appendAiMsg('bot', "⚠️ Session Expired. Your browser tab has been open too long and the security token expired. Please refresh the page.");
+                } else if(xhr.status === 500) {
+                    appendAiMsg('bot', "⚠️ Server Error (500). Please check your internet connection or the server logs. \n" + (xhr.responseJSON?.message || ''));
+                } else {
+                    appendAiMsg('bot', "❌ Connection error (" + xhr.status + "). Please try again later.");
+                }
             }
         });
     }
 
-    function appendAiMsg(sender, text, model = null, ms = null, animate = true) {
+    function appendAiMsg(sender, text, model = null, ms = null, animate = true, typeEffect = false) {
         const msgBox = document.getElementById('ai-chat-messages');
         const div = document.createElement('div');
-        div.className = `ai-msg ai-msg-${sender} ${animate ? 'animate__animated animate__fadeInUp' : ''}`;
+        div.className = `ai-msg ai-msg-${sender} ${animate && !typeEffect ? 'animate__animated animate__fadeInUp' : ''}`;
         
         let content = text;
         if(sender === 'bot') {
@@ -527,16 +676,79 @@
             content = marked.parse(text);
         } else {
             // User message escape and replace newlines
-            content = text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, '<br>');
+            content = text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\\n/g, '<br>');
         }
         
-        div.innerHTML = `<div class="${sender === 'bot' ? 'markdown-body' : ''}">${content}</div>`;
+        const contentDiv = document.createElement('div');
+        contentDiv.className = sender === 'bot' ? 'markdown-body' : '';
+        div.appendChild(contentDiv);
         
+        const metaSpan = document.createElement('span');
+        metaSpan.className = 'msg-meta';
         if(model && ms) {
-            div.innerHTML += `<span class="msg-meta">${model} • ${ms}ms</span>`;
+            metaSpan.innerHTML = `${model} • ${ms}ms`;
         }
 
         msgBox.appendChild(div);
-        scrollToBottom();
+
+        if (sender === 'bot' && typeEffect) {
+            let index = 0;
+            let textHTML = "";
+            let isTag = false;
+            
+            contentDiv.classList.add('typing-active');
+            
+            if(!document.getElementById('ai-typing-styles')) {
+                const style = document.createElement('style');
+                style.id = 'ai-typing-styles';
+                style.innerHTML = `
+                .typing-active::after {
+                    content: '▋';
+                    display: inline-block;
+                    color: #4f46e5;
+                    animation: ai-blink 1s step-end infinite;
+                    margin-left: 2px;
+                    vertical-align: baseline;
+                }
+                @keyframes ai-blink { 50% { opacity: 0; } }
+                `;
+                document.head.appendChild(style);
+            }
+
+            let timer = setInterval(() => {
+                if (index >= content.length) {
+                    clearInterval(timer);
+                    contentDiv.classList.remove('typing-active');
+                    if (model && ms) div.appendChild(metaSpan);
+                    scrollToBottom();
+                    return;
+                }
+                
+                let char = content.charAt(index);
+                
+                if (char === '<') isTag = true;
+                
+                if (isTag) {
+                    let endIndex = content.indexOf('>', index);
+                    if (endIndex !== -1) {
+                        textHTML += content.substring(index, endIndex + 1);
+                        index = endIndex + 1;
+                        isTag = false;
+                        contentDiv.innerHTML = textHTML;
+                        scrollToBottom();
+                        return;
+                    }
+                }
+                
+                textHTML += char;
+                index++;
+                contentDiv.innerHTML = textHTML;
+                scrollToBottom();
+            }, 10);
+        } else {
+            contentDiv.innerHTML = content;
+            if (model && ms) div.appendChild(metaSpan);
+            scrollToBottom();
+        }
     }
 </script>

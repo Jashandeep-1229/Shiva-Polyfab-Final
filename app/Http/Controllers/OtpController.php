@@ -74,8 +74,8 @@ class OtpController extends Controller
                                         <span class="text-muted small"><i class="fa fa-clock-o me-1"></i> Last Active:</span>
                                         <span class="text-primary fw-bold small">'.$item->last_active_at->diffForHumans().'</span>
                                     </div>
-                                    <div class="p-2 bg-light rounded small mt-2">
-                                        <i class="fa fa-desktop me-1"></i> Device Info:<br>
+                                    <div class="p-2 bg-light rounded text-dark small mt-2">
+                                        <i class="fa fa-desktop me-1 "></i> Device Info:<br>
                                         <span class="text-secondary" style="font-size: 11px;">'.($item->last_device_info ?: "Unspecified").'</span>
                                     </div>
                                 </div>

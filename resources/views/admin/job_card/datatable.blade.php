@@ -47,9 +47,9 @@
         position: sticky;
         right: 0;
         z-index: 110;
-        width: 140px !important;
-        min-width: 140px !important;
-        max-width: 140px !important;
+        width: 160px !important;
+        min-width: 160px !important;
+        max-width: 160px !important;
         background-color: #fcfdfe;
         border-left: 1px solid #e2e8f0;
         text-align: center !important;
@@ -324,6 +324,11 @@
                     <a onclick="next_process({{$item->id}},'{{$item->job_card_process}}')" class="btn btn-success btn-sm pointer p-1 f-14" data-toggle="tooltip" title="Next Process">
                         <i class="fa fa-arrow-right"></i>
                     </a>
+                    @if($item->job_card_process == 'Account Pending')
+                    <a onclick="next_process({{$item->id}},'{{$item->job_card_process}}', 'remarks')" class="btn btn-secondary btn-sm pointer p-1 f-14" data-toggle="tooltip" title="Complete without Bill">
+                        <i class="fa fa-check-square-o"></i>
+                    </a>
+                    @endif
                 @endif
             @endif
                     
@@ -343,6 +348,9 @@
                     </a> -->
                     
                     @if (auth()->user()->role_as == 'Admin')
+                        <a onclick="edit_modal({{$item->id}},{{$key+1}})"  class="btn btn-warning btn-sm  pointer p-1 f-14" data-bs-toggle="modal" data-bs-target="#job_card_modal"  data-toggle="tooltip" title="Edit">
+                            <i class="fa fa-edit"></i>
+                        </a>
                         <a onclick="delete_job_card({{$item->id}})" class="btn btn-danger btn-sm  pointer p-1 f-14" data-toggle="tooltip" title="Delete">
                             <i class="fa fa-trash-o"></i>
                         </a>

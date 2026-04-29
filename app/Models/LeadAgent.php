@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\AutoLogsActivity;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class LeadAgent extends Model
 {
-    use HasFactory;
+    use HasFactory, AutoLogsActivity;
 
     protected $fillable = ['agent_customer_id', 'lead_agent_customer_id', 'name', 'firm_name', 'phone', 'state', 'city', 'deals_in_id', 'status'];
 

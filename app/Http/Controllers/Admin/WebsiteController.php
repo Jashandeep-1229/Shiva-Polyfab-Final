@@ -26,6 +26,10 @@ class WebsiteController extends Controller
         $replacements[env('LAMINATION_LIMIT')] = $request->lamination_limit;
         $replacements[env('CUTTING_LIMIT')] = $request->cutting_limit;
         
+        $mode = env('WHATSAPP_TEST_MODE') ? 'true' : 'false';
+        $replacements['WHATSAPP_TEST_MODE='.$mode] = 'WHATSAPP_TEST_MODE='.$request->whatsapp_test_mode;
+        $replacements['WHATSAPP_TEST_NUMBER='.env('WHATSAPP_TEST_NUMBER')] = 'WHATSAPP_TEST_NUMBER='.$request->whatsapp_test_number;
+        
         if($request->hasfile('logo_light')){
             $random_file_name = rand(00000,99999);
             $file = $request->logo_light;
